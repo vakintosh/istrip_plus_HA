@@ -1,0 +1,11 @@
+{
+  "domain": "istrip",
+  "name": "iStrip+ BLE Light",
+  "version": "1.0.0",
+  "documentation": "",
+  "requirements": ["bleak", "pycryptodome"],
+  "dependencies": [],
+  "codeowners": ["@vakintosh"],
+  "iot_class": "local_polling",
+  "supported_platforms": ["light", "switch", "number"]
+}
