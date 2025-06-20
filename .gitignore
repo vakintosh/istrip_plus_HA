@@ -1,0 +1,6 @@
+*.apk
+venv
+.history
+__pycache__
+*.txt
+iStrip__1.3.6_
