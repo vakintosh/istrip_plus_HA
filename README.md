@@ -1,19 +1,24 @@
 # iStrip BLE Light Integration for Home Assistant
 
-This custom integration replicates the core features of the official iStrip+ app, allowing you to control your iStrip BLE (Bluetooth Low Energy) LED light directly from Home Assistant. It communicates with the light using Bluetooth and AES-encrypted commands, enabling seamless color and brightness adjustments just like the original app.
+This custom integration replicates core features of the official iStrip+ app, enabling control of iStrip BLE (Bluetooth Low Energy) LED lights directly from Home Assistant. It communicates over BLE using AES-encrypted commands to provide smooth RGB color and brightness adjustments, just like the original app.
 
-> **Note:**  
-> This project is under active development and is not yet production-ready. Features may change, bugs may exist, and breaking changes could occur. Use at your own risk. Contributions, suggestions, and testing feedback are encouraged!
+> **⚠️ Note:**  
+> This project is under active development and **not yet production-ready**. Features may change, bugs may exist, and breaking changes could occur. Use at your own risk.  
+> **Contributions, suggestions, and testing feedback are very welcome!**
 
-## Features
+---
 
-- Turn the iStrip BLE light on and off
-- Set RGB color with smooth brightness adjustment
-- Uses AES encryption for communication as reverse engineered from the official app
-- BLE address and characteristic UUID configurable
-- Async integration compatible with Home Assistant's light platform
+## ✨ Features
 
-## Installation
+- Turn iStrip BLE light **on/off**
+- Set **RGB color** with smooth **brightness** control
+- Communicates via **AES-encrypted BLE packets**
+- Configurable **BLE MAC address** and **characteristic UUID**
+- Fully **asynchronous** and compatible with Home Assistant’s `light` platform
+
+---
+
+## 🛠️ Installation
 
 1. **Download the integration:**
 
@@ -23,7 +28,9 @@ This custom integration replicates the core features of the official iStrip+ app
 
    - Copy the `istrip` directory to your Home Assistant `custom_components` folder.
 
-3. Find your lamp’s Bluetooth MAC address by running the following command on your Home Assistant host or any Linux machine with BLE support:
+3. **Find your lamp’s BLE MAC address:**
+
+   Run on any Linux machine (or your HA host) with BLE support:
 
    ```bash
    sudo hcitool lescan
@@ -43,16 +50,16 @@ This custom integration replicates the core features of the official iStrip+ app
    CHAR_UUID = "00000000-0000-0000-0000-000000000000"  # Write characteristic UUID can be found with an app like nRF Connect
    ```
 
-5. Restart Home Assistant.
-
-6. Add the iStrip light platform to your `configuration.yaml` (optional if using auto-discovery):
+5. Add the iStrip light platform to your `configuration.yaml`:
 
    ```yaml
    light:
      - platform: istrip
    ```
 
-## Usage
+6. Restart Home Assistant.
+
+## 🧑‍💻 Usage
 
 Once installed, the iStrip BLE light entity will appear in Home Assistant. You can:
 
@@ -62,7 +69,7 @@ Once installed, the iStrip BLE light entity will appear in Home Assistant. You c
 
 Commands are sent over BLE asynchronously with encryption matching the iStrip+ app protocol.
 
-## Code Overview
+## 📁 Code Overview
 
 - **`__init__.py`**  
   Minimal setup functions required by Home Assistant.
@@ -78,18 +85,18 @@ Commands are sent over BLE asynchronously with encryption matching the iStrip+ a
   Implements AES-ECB encryption and payload formatting according to the reverse engineered protocol.  
   Generates payloads for RGB color changes and turning off the light.
 
-## Dependencies
+## 📦 Dependencies
 
 - Home Assistant
 - [Bleak](https://github.com/hbldh/bleak) - Python Bluetooth LE client library
 - [PyCryptodome](https://www.pycryptodome.org/) - For AES encryption
 
-## Troubleshooting
+## ❓ Troubleshooting
 
 - Ensure Bluetooth is enabled and your Home Assistant host supports BLE.
 - Verify the BLE MAC address and characteristic UUID match your specific device.
 - If commands fail, check Home Assistant logs for BLE communication errors.
 
-## License
+## 📝 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
