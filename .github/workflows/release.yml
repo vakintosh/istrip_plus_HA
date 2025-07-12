@@ -50,17 +50,31 @@ jobs:
         id: bump_version
         run: |
           OLD="${{ steps.get_version.outputs.current }}"
-          IFS='.' read -r major minor patch <<< "$OLD"
+
+          # Parse the version using POSIX-compatible tools
+          major=$(echo "$OLD" | cut -d. -f1)
+          minor=$(echo "$OLD" | cut -d. -f2)
+          patch=$(echo "$OLD" | cut -d. -f3)
+
           case "${{ steps.bump.outputs.type }}" in
             major)
-              ((major++)); minor=0; patch=0 ;;
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
             minor)
-              ((minor++)); patch=0 ;;
+              minor=$((minor + 1))
+              patch=0
+              ;;
             patch)
-              ((patch++)) ;;
+              patch=$((patch + 1))
+              ;;
           esac
+
           NEW="$major.$minor.$patch"
           echo "new=$NEW" >> "$GITHUB_OUTPUT"
+
+          # Update manifest.json safely
           jq --arg v "$NEW" '.version = $v' istrip/manifest.json > tmp && mv tmp istrip/manifest.json
 
       - name: Generate CHANGELOG
