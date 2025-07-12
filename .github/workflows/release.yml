@@ -83,9 +83,12 @@ jobs:
           conventional-changelog -p angular -i CHANGELOG.md -s
 
       - name: Commit and tag
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}
           git add istrip/manifest.json CHANGELOG.md
           git commit -m "Release v${{ steps.bump_version.outputs.new }}"
           git tag "v${{ steps.bump_version.outputs.new }}"
