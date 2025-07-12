@@ -98,7 +98,6 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             _LOGGER.debug(f"Connecting to {address}")
             async with BleakClient(address) as client:
-                await client.connect()
                 _LOGGER.debug("Connected, accessing services...")
 
                 services = client.services
