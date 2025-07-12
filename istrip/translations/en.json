@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "iStrip BLE setup",
+        "description": "Select one of the devices found.",
+        "data": {
+          "address": "Device"
+        }
+      },
+      "bluetooth_confirm": {
+        "data": {}
+      }
+    }
+  }
+}

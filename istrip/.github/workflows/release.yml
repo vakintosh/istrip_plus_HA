@@ -1,0 +1,87 @@
+name: Auto Release on PR Merge
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js (for changelog tool)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install tools
+        run: |
+          sudo apt-get install -y jq
+          npm install -g conventional-changelog-cli
+
+      - name: Get current version
+        id: get_version
+        run: |
+          VERSION=$(jq -r .version custom_components/istrip/manifest.json)
+          echo "current=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Detect bump type from PR title
+        id: bump
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          if echo "$TITLE" | grep -qi "BREAKING CHANGE"; then
+            BUMP="major"
+          elif echo "$TITLE" | grep -qE '^feat(\(|!|\:)'; then
+            BUMP="minor"
+          elif echo "$TITLE" | grep -qE '^fix(\(|\:)'; then
+            BUMP="patch"
+          else
+            BUMP="patch"
+          fi
+          echo "type=$BUMP" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version
+        id: bump_version
+        run: |
+          OLD="${{ steps.get_version.outputs.current }}"
+          IFS='.' read -r major minor patch <<< "$OLD"
+          case "${{ steps.bump.outputs.type }}" in
+            major)
+              ((major++)); minor=0; patch=0 ;;
+            minor)
+              ((minor++)); patch=0 ;;
+            patch)
+              ((patch++)) ;;
+          esac
+          NEW="$major.$minor.$patch"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          jq --arg v "$NEW" '.version = $v' custom_components/istrip/manifest.json > tmp && mv tmp custom_components/istrip/manifest.json
+
+      - name: Generate CHANGELOG
+        run: |
+          # Generate changelog (adds to CHANGELOG.md)
+          conventional-changelog -p angular -i CHANGELOG.md -s
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add custom_components/istrip/manifest.json CHANGELOG.md
+          git commit -m "Release v${{ steps.bump_version.outputs.new }}"
+          git tag "v${{ steps.bump_version.outputs.new }}"
+          git push origin main --follow-tags
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.bump_version.outputs.new }}
+          name: v${{ steps.bump_version.outputs.new }}
+          body_path: CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

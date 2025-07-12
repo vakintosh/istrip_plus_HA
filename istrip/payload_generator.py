@@ -1,5 +1,3 @@
-# payload_generator.py
-
 from Crypto.Cipher import AES
 
 class CommandType:
@@ -21,7 +19,6 @@ class PayloadGenerator:
         0x8D, 0x2A, 0x23, 0xF8
     ])
 
-    # Static header
     HEADER = bytes([0x54, 0x52, 0x00, 0x57])
 
     GROUP_ID = 1  # Can be set dynamically later if needed
