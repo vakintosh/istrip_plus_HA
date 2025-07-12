@@ -1,11 +1,13 @@
 {
   "domain": "istrip",
   "name": "iStrip+ BLE Light",
-  "version": "1.0.0",
-  "documentation": "",
+  "version": "1.1.0",
+  "documentation": "https://github.com/vakintosh/istrip_plus_HA",
   "requirements": ["bleak", "pycryptodome"],
   "dependencies": [],
   "codeowners": ["@vakintosh"],
-  "iot_class": "local_polling",
+  "iot_class": "local_push",
+  "config_flow": true,
+  "bluetooth": [],
   "supported_platforms": ["light", "switch", "number"]
 }
