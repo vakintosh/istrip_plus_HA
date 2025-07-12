@@ -111,5 +111,3 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except Exception as e:
             _LOGGER.warning(f"Could not discover characteristics: {e}")
         return None
-
-
