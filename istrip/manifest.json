@@ -9,5 +9,5 @@
   "iot_class": "local_push",
   "config_flow": true,
   "bluetooth": [],
-  "supported_platforms": ["light", "switch", "number"]
+  "supported_platforms": ["light"]
 }
