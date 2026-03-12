@@ -1,0 +1,57 @@
+set_speed:
+  name: Set Speed
+  description: Set the animation speed of an iStrip+ light (0-100).
+  fields:
+    entity_id:
+      description: Target light entity_id
+      example: light.istrip_aabbccddeeff
+      required: true
+      selector:
+        entity:
+          domain: light
+    speed:
+      description: Speed value (0..100)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+
+set_effect:
+  name: Set Effect
+  description: Set an effect on an iStrip+ light.
+  fields:
+    entity_id:
+      description: Target light entity_id
+      required: true
+      selector:
+        entity:
+          domain: light
+    effect:
+      description: Effect name (Static, Fade7, Strobe, Flash)
+      required: true
+      selector:
+        select:
+          options:
+            - 7-Color Fade
+            - 3-Color Fade
+            - Red Breathing
+            - Red Strobe
+            - 7-Color Breathing
+            - 3-Color Breathing
+            - Blue Breathing
+            - Blue Strobe
+            - 7-Color Flash
+            - 3-Color Flash
+            - Green Breathing
+            - Green Strobe
+
+    speed:
+      description: Optional speed (0..100) to apply with the effect
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
