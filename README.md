@@ -89,7 +89,7 @@ To control effects and their speed directly from a Lovelace dashboard, we recomm
 
 - **Dropdown (`input_select.istrip_effect`):**
 
-  - **Options:** `Sunset`, `Aurora`, `7-Color Fade`, `3-Color Fade`, `Red Breathing`, `Red Strobe`, `7-Color Breathing`, `3-Color Breathing`, `Blue Breathing`, `Blue Strobe`, `7-Color Flash`, `3-Color Flash`, `Green Breathing`, `Green Strobe`
+  - **Options:** `7-Color Fade`, `3-Color Fade`, `Red Breathing`, `Red Strobe`, `7-Color Breathing`, `3-Color Breathing`, `Blue Breathing`, `Blue Strobe`, `7-Color Flash`, `3-Color Flash`, `Green Breathing`, `Green Strobe`
   - **Icon:** `mdi:palette`
 
 - **Number (`input_number.istrip_effect_speed`):**
@@ -131,23 +131,11 @@ Add the following to your `automations.yaml` to automatically sync these helpers
             - condition: trigger
               id: effect_changed
           sequence:
-            - choose:
-                - conditions:
-                    - condition: template
-                      value_template: "{{ states('input_select.istrip_effect') == 'Sunset' }}"
-                  sequence:
-                    - action: script.istrip_sunrise_sunset
-                - conditions:
-                    - condition: template
-                      value_template: "{{ states('input_select.istrip_effect') == 'Aurora' }}"
-                  sequence:
-                    - action: script.istrip_aurora_borealis
-              default:
-                - action: istrip.set_effect
-                  data:
-                    entity_id: light.istrip_ble_light
-                    effect: "{{ states('input_select.istrip_effect') }}"
-                    speed: "{{ states('input_number.istrip_effect_speed') | int }}"
+            - action: istrip.set_effect
+              data:
+                entity_id: light.istrip_ble_light
+                effect: "{{ states('input_select.istrip_effect') }}"
+                speed: "{{ states('input_number.istrip_effect_speed') | int }}"
         - conditions:
             - condition: trigger
               id: speed_changed
