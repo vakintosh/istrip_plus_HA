@@ -7,11 +7,13 @@ from homeassistant.const import CONF_ADDRESS, CONF_NAME
 from homeassistant.data_entry_flow import FlowResult
 import voluptuous as vol
 import logging
-from bleak import BleakClient
+from bleak.backends.device import BLEDevice
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from .const import DOMAIN
 from typing import Any, Optional, Dict
 
 _LOGGER = logging.getLogger(__name__)
+
 
 class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 2
@@ -40,9 +42,16 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not char_uuid:
                 return self.async_show_form(
                     step_id="user",
-                    data_schema=vol.Schema({vol.Required(CONF_ADDRESS): vol.In(
-                        {addr: info.name for addr, info in self._discovered_devices.items()}
-                    )}),
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(CONF_ADDRESS): vol.In(
+                                {
+                                    addr: info.name
+                                    for addr, info in self._discovered_devices.items()
+                                }
+                            )
+                        }
+                    ),
                     errors={"address": "no_valid_char_found"},
                 )
 
@@ -61,7 +70,9 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not self._discovered_devices:
             return self.async_abort(reason="no_devices_found")
 
-        device_list = {address: info.name for address, info in self._discovered_devices.items()}
+        device_list = {
+            address: info.name for address, info in self._discovered_devices.items()
+        }
 
         return self.async_show_form(
             step_id="user",
@@ -84,7 +95,7 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data={
                     CONF_ADDRESS: discovery_info.address.upper(),
                     CONF_NAME: discovery_info.name,
-                    "char_uuid": self._char_uuid, 
+                    "char_uuid": self._char_uuid,
                 },
             )
 
@@ -97,19 +108,30 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Connect to BLE device and find a writable characteristic UUID."""
         try:
             _LOGGER.debug(f"Connecting to {address}")
-            async with BleakClient(address) as client:
+            device = BLEDevice(address, "iStrip", {})
+            client = await establish_connection(
+                BleakClientWithServiceCache,
+                device,
+                "iStrip",
+                max_attempts=3,
+            )
+            try:
                 _LOGGER.debug("Connected, accessing services...")
 
                 services = client.services
 
                 for service in services:
                     for char in service.characteristics:
-                        _LOGGER.debug(f"Char: {char.uuid} - Properties: {char.properties}")
+                        _LOGGER.debug(
+                            f"Char: {char.uuid} - Properties: {char.properties}"
+                        )
                         if (
                             "write" in char.properties
                             or "write-without-response" in char.properties
                         ):
                             return str(char.uuid)
+            finally:
+                await client.disconnect()
         except Exception as e:
             _LOGGER.warning(f"Could not discover characteristics: {e}")
         return None
