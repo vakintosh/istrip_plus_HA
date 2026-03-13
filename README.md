@@ -31,11 +31,20 @@ This custom integration replicates core features of the official iStrip+ app, en
 
 ## Installation
 
+### Option 1: Install with HACS (recommended)
+
+1. Open **HACS → Integrations → Custom repositories**.
+2. Add this repository URL and select category **Integration**.
+3. Search for **iStrip+ BLE Light** in HACS and install it.
+4. Restart Home Assistant.
+
+### Option 2: Manual installation
+
 1. **Download the integration:**  
-   Clone or download this repository.
+  Clone or download this repository.
 
 2. **Copy files:**  
-   Copy the `istrip` directory into your Home Assistant `custom_components` folder.
+  Copy `custom_components/istrip` to your Home Assistant `custom_components/` directory.
 
 3. **Restart Home Assistant.**
 
