@@ -1,0 +1,6 @@
+{
+  "name": "iStrip+ BLE Light",
+  "render_readme": true,
+  "homeassistant": "2026.3.1",
+  "issue_tracker": "https://github.com/vakintosh/istrip_plus_HA/issues"
+}
