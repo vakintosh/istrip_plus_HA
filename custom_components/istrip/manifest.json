@@ -1,7 +1,7 @@
 {
   "domain": "istrip",
   "name": "iStrip+ BLE Light",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "documentation": "https://github.com/vakintosh/istrip_plus_HA",
   "requirements": ["bleak", "bleak-retry-connector", "pycryptodome"],
   "dependencies": [],
