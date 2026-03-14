@@ -4,9 +4,9 @@
   "version": "0.3.0",
   "documentation": "https://github.com/vakintosh/istrip_plus_HA",
   "requirements": [
-    "bleak==0.22.3",
-    "bleak-retry-connector==3.8.1",
-    "pycryptodome==3.21.0"
+    "bleak>=0.21.0",
+    "bleak-retry-connector>=3.5.0",
+    "pycryptodome>=3.20.0"
   ],
   "dependencies": ["bluetooth_adapters"],
   "codeowners": ["@vakintosh"],
