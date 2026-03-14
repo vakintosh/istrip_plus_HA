@@ -1,8 +1,20 @@
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.config_entries import ConfigEntry
+"""The iStrip+ BLE integration."""
+
+from __future__ import annotations
+
+import logging
+
 import voluptuous as vol
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, ServiceCall
 import homeassistant.helpers.config_validation as cv
+
 from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+PLATFORMS = ["light"]
 
 CONF_ENTITY_ID = "entity_id"
 CONF_EFFECT = "effect"
@@ -27,20 +39,17 @@ SET_SPEED_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up iStrip from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
-    await hass.config_entries.async_forward_entry_setups(entry, ["light"])
+    entry.runtime_data = entry.data
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register custom services
-    async def async_set_effect_service(call: ServiceCall):
+    async def async_set_effect_service(call: ServiceCall) -> None:
         """Handle the set_effect service call."""
         entity_id = call.data[CONF_ENTITY_ID]
         effect = call.data[CONF_EFFECT]
         speed = call.data.get(CONF_SPEED)
 
-        # Find the light entity
         component = hass.data.get("light")
         if component is None:
             return
@@ -49,15 +58,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         if entity is None:
             return
 
-        # Call the entity method
         await entity.set_effect(effect, speed)
 
-    async def async_set_speed_service(call: ServiceCall):
+    async def async_set_speed_service(call: ServiceCall) -> None:
         """Handle the set_speed service call."""
         entity_id = call.data[CONF_ENTITY_ID]
         speed = call.data[CONF_SPEED]
 
-        # Find the light entity
         component = hass.data.get("light")
         if component is None:
             return
@@ -66,10 +73,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         if entity is None:
             return
 
-        # Call the entity method
         await entity.set_speed(speed)
 
-    # Register services
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_EFFECT,
@@ -87,10 +92,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    # Unregister services
     hass.services.async_remove(DOMAIN, SERVICE_SET_EFFECT)
     hass.services.async_remove(DOMAIN, SERVICE_SET_SPEED)
 
-    return await hass.config_entries.async_unload_platforms(entry, ["light"])
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

@@ -1,6 +1,6 @@
 [project]
 name = "istrip"
-version = "0.2.1"
+version = "0.3.0"
 description = "Home Assistant integration for controlling iStrip+ BLE LED lights"
 readme = "README.md"
 requires-python = ">=3.11"

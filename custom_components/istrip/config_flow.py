@@ -1,38 +1,47 @@
-from homeassistant import config_entries
+"""Config flow for iStrip+ BLE integration."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from bleak.backends.device import BLEDevice
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+import voluptuous as vol
+
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
 )
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS, CONF_NAME
-from homeassistant.data_entry_flow import FlowResult
-import voluptuous as vol
-import logging
-from bleak.backends.device import BLEDevice
-from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+
 from .const import DOMAIN
-from typing import Any, Optional, Dict
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for iStrip+ BLE."""
+
     VERSION = 2
 
     def __init__(self) -> None:
-        self._discovered_devices: Dict[str, BluetoothServiceInfoBleak] = {}
-        self._discovery_info: Optional[BluetoothServiceInfoBleak] = None
-        self._char_uuid: Optional[str] = None
+        """Initialize the config flow."""
+        self._discovered_devices: dict[str, BluetoothServiceInfoBleak] = {}
+        self._discovery_info: BluetoothServiceInfoBleak | None = None
+        self._char_uuid: str | None = None
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle Bluetooth discovery."""
         self._discovery_info = discovery_info
         return await self.async_step_bluetooth_confirm()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial user step."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
@@ -81,7 +90,7 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Confirm the Bluetooth device."""
         assert self._discovery_info is not None
         discovery_info = self._discovery_info
@@ -107,7 +116,7 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _discover_char_uuid(self, address: str) -> str | None:
         """Connect to BLE device and find a writable characteristic UUID."""
         try:
-            _LOGGER.debug(f"Connecting to {address}")
+            _LOGGER.debug("Connecting to %s", address)
             device = BLEDevice(address, "iStrip", {})
             client = await establish_connection(
                 BleakClientWithServiceCache,
@@ -116,14 +125,16 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 max_attempts=3,
             )
             try:
-                _LOGGER.debug("Connected, accessing services...")
+                _LOGGER.debug("Connected, accessing services")
 
                 services = client.services
 
                 for service in services:
                     for char in service.characteristics:
                         _LOGGER.debug(
-                            f"Char: {char.uuid} - Properties: {char.properties}"
+                            "Char: %s - Properties: %s",
+                            char.uuid,
+                            char.properties,
                         )
                         if (
                             "write" in char.properties
@@ -132,6 +143,6 @@ class IstripConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             return str(char.uuid)
             finally:
                 await client.disconnect()
-        except Exception as e:
-            _LOGGER.warning(f"Could not discover characteristics: {e}")
+        except Exception:
+            _LOGGER.warning("Could not discover characteristics for %s", address)
         return None
