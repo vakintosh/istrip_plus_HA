@@ -16,7 +16,7 @@ from homeassistant.components.bluetooth import (
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS, CONF_NAME
 
-from .const import DOMAIN
+from .const import DOMAIN, KNOWN_CHAR_UUIDS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle Bluetooth discovery."""
         self._discovery_info = discovery_info
+        self._char_uuid = await self._discover_char_uuid(discovery_info.address)
         return await self.async_step_bluetooth_confirm()
 
     async def async_step_user(
@@ -128,6 +129,7 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.debug("Connected, accessing services")
 
                 services = client.services
+                writable_uuids: list[str] = []
 
                 for service in services:
                     for char in service.characteristics:
@@ -140,7 +142,23 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
                             "write" in char.properties
                             or "write-without-response" in char.properties
                         ):
-                            return str(char.uuid)
+                            writable_uuids.append(str(char.uuid))
+
+                # Prioritize known iStrip characteristic UUIDs
+                for known_uuid in KNOWN_CHAR_UUIDS:
+                    if known_uuid in writable_uuids:
+                        _LOGGER.debug(
+                            "Found known characteristic UUID: %s", known_uuid
+                        )
+                        return known_uuid
+
+                # Fall back to the first writable characteristic
+                if writable_uuids:
+                    _LOGGER.debug(
+                        "Using first writable characteristic: %s", writable_uuids[0]
+                    )
+                    return writable_uuids[0]
+
             finally:
                 await client.disconnect()
         except Exception:

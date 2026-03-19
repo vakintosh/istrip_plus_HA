@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, KNOWN_CHAR_UUIDS
 from .payload_generator import PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up iStrip light from config entry."""
     address: str = entry.data["address"]
-    char_uuid: str = entry.data["char_uuid"]
+    char_uuid: str | None = entry.data.get("char_uuid")
     name: str = entry.data.get("name", "iStrip")
     async_add_entities([IstripLight(address, char_uuid, name, entry.entry_id)])
 
@@ -52,7 +52,7 @@ class IstripLight(LightEntity):
     def __init__(
         self,
         address: str,
-        char_uuid: str,
+        char_uuid: str | None,
         name: str,
         entry_id: str,
     ) -> None:
@@ -191,6 +191,21 @@ class IstripLight(LightEntity):
             self._connected = True
             _LOGGER.debug("Connected to iStrip device at %s", self._address)
 
+            # If char_uuid was not discovered during setup, find it now
+            if not self._char_uuid:
+                self._char_uuid = self._discover_char_uuid_from_services()
+                if not self._char_uuid:
+                    _LOGGER.error(
+                        "No writable characteristic found on %s", self._address
+                    )
+                    await self._disconnect()
+                    return
+                _LOGGER.info(
+                    "Discovered characteristic UUID %s on %s",
+                    self._char_uuid,
+                    self._address,
+                )
+
             try:
                 await self._client.start_notify(
                     self._char_uuid, self._handle_notification
@@ -205,6 +220,26 @@ class IstripLight(LightEntity):
             _LOGGER.error("Failed to connect to device at %s", self._address)
             self._connected = False
             self._client = None
+
+    def _discover_char_uuid_from_services(self) -> str | None:
+        """Find the best writable characteristic UUID from the connected client."""
+        if not self._client or not self._client.is_connected:
+            return None
+
+        writable_uuids: list[str] = []
+        for service in self._client.services:
+            for char in service.characteristics:
+                if (
+                    "write" in char.properties
+                    or "write-without-response" in char.properties
+                ):
+                    writable_uuids.append(str(char.uuid))
+
+        for known_uuid in KNOWN_CHAR_UUIDS:
+            if known_uuid in writable_uuids:
+                return known_uuid
+
+        return writable_uuids[0] if writable_uuids else None
 
     async def _disconnect(self) -> None:
         """Disconnect from the BLE device."""
