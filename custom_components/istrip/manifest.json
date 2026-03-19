@@ -1,7 +1,7 @@
 {
   "domain": "istrip",
   "name": "iStrip+ BLE Light",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "documentation": "https://github.com/vakintosh/istrip_plus_HA",
   "requirements": [
     "bleak>=0.21.0",
