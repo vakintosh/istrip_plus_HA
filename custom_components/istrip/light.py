@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, KNOWN_CHAR_UUIDS
+from .const import DOMAIN, EFFECT_DEFAULT_SPEEDS, DEFAULT_SPEED, KNOWN_CHAR_UUIDS
 from .payload_generator import PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,7 +63,9 @@ class IstripLight(LightEntity):
         self._pg = PayloadGenerator()
         self._client: BleakClientWithServiceCache | None = None
         self._connected = False
-        self._effect_speed = 100
+
+        # Per-effect speed — starts from EFFECT_DEFAULT_SPEEDS, overridable at runtime
+        self._effect_speeds: dict[str, int] = dict(EFFECT_DEFAULT_SPEEDS)
 
         mac = address.lower().replace(":", "")
         self._attr_unique_id = f"istrip_{mac}"
@@ -79,23 +81,31 @@ class IstripLight(LightEntity):
             model="iStrip+ BLE",
         )
 
+    def _get_speed(self, effect_name: str | None) -> int:
+        """Return the stored speed for the given effect, or DEFAULT_SPEED."""
+        if effect_name is None:
+            return DEFAULT_SPEED
+        return self._effect_speeds.get(effect_name, DEFAULT_SPEED)
+
+    def _set_speed(self, effect_name: str | None, speed: int) -> None:
+        """Store speed for the given effect."""
+        if effect_name is not None:
+            self._effect_speeds[effect_name] = max(1, min(100, speed))
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light with optional color, brightness, or effect."""
         if ATTR_EFFECT in kwargs:
             effect_name = kwargs[ATTR_EFFECT]
             self._attr_effect = effect_name
-            brightness = self._attr_brightness
             if ATTR_BRIGHTNESS in kwargs:
                 self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
-                brightness = self._attr_brightness
-
-            device_brightness = max(10, int(brightness * 100 / 255))
-
+            device_brightness = max(10, int(self._attr_brightness * 100 / 255))
+            speed = self._get_speed(effect_name)
             self._attr_is_on = True
             payload = self._pg.get_effect_payload(
                 effect_name,
                 device_brightness,
-                self._effect_speed,
+                speed,
                 self._attr_rgb_color,
             )
             await self._send_payload(payload)
@@ -114,10 +124,11 @@ class IstripLight(LightEntity):
 
         if self._attr_effect and ATTR_RGB_COLOR not in kwargs:
             device_brightness = max(10, int(self._attr_brightness * 100 / 255))
+            speed = self._get_speed(self._attr_effect)
             payload = self._pg.get_effect_payload(
                 self._attr_effect,
                 device_brightness,
-                self._effect_speed,
+                speed,
                 self._attr_rgb_color,
             )
         else:
@@ -133,32 +144,34 @@ class IstripLight(LightEntity):
         await self._send_payload(payload)
 
     async def set_effect(self, effect_name: str, speed: int | None = None) -> None:
-        """Set an effect with optional speed."""
+        """Set an effect with optional per-effect speed."""
         if speed is not None:
-            self._effect_speed = max(1, min(100, speed))
-
+            self._set_speed(effect_name, speed)
         self._attr_effect = effect_name
         device_brightness = max(10, int(self._attr_brightness * 100 / 255))
+        current_speed = self._get_speed(effect_name)
         payload = self._pg.get_effect_payload(
             effect_name,
             device_brightness,
-            self._effect_speed,
+            current_speed,
             self._attr_rgb_color,
         )
-
         if self._attr_is_on:
             await self._send_payload(payload)
 
     async def set_speed(self, speed: int) -> None:
-        """Set the speed for the current effect."""
-        self._effect_speed = max(1, min(100, speed))
-
-        if self._attr_effect and self._attr_is_on:
+        """Set the speed for the currently active effect."""
+        if self._attr_effect is None:
+            _LOGGER.warning("set_speed called but no effect is active — ignoring")
+            return
+        self._set_speed(self._attr_effect, speed)
+        if self._attr_is_on:
             device_brightness = max(10, int(self._attr_brightness * 100 / 255))
+            current_speed = self._get_speed(self._attr_effect)
             payload = self._pg.get_effect_payload(
                 self._attr_effect,
                 device_brightness,
-                self._effect_speed,
+                current_speed,
                 self._attr_rgb_color,
             )
             await self._send_payload(payload)
@@ -268,8 +281,9 @@ class IstripLight(LightEntity):
             self._attr_rgb_color = state["rgb"]
             self._attr_brightness = state["brightness"]
             self._attr_effect = state["effect"]
-            self._effect_speed = state["speed"]
-
+            # Update per-effect speed from device notification
+            if state["effect"] is not None:
+                self._set_speed(state["effect"], state["speed"])
             self.schedule_update_ha_state()
 
         except Exception:
