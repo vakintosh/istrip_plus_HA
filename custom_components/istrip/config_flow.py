@@ -5,12 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from bleak.backends.device import BLEDevice
-from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 import voluptuous as vol
-
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
+    async_ble_device_from_address,
     async_discovered_service_info,
 )
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
@@ -117,27 +116,25 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _discover_char_uuid(self, address: str) -> str | None:
         """Connect to BLE device and find a writable characteristic UUID."""
         try:
-            _LOGGER.debug("Connecting to %s", address)
-            device = BLEDevice(address, "iStrip", {})
+            ble_device = async_ble_device_from_address(
+                self.hass, address, connectable=True
+            )
+            if ble_device is None:
+                _LOGGER.warning(
+                    "No connectable Bluetooth scanner currently sees %s", address
+                )
+                return None
+
             client = await establish_connection(
                 BleakClientWithServiceCache,
-                device,
+                ble_device,
                 "iStrip",
                 max_attempts=3,
             )
             try:
-                _LOGGER.debug("Connected, accessing services")
-
-                services = client.services
                 writable_uuids: list[str] = []
-
-                for service in services:
+                for service in client.services:
                     for char in service.characteristics:
-                        _LOGGER.debug(
-                            "Char: %s - Properties: %s",
-                            char.uuid,
-                            char.properties,
-                        )
                         if (
                             "write" in char.properties
                             or "write-without-response" in char.properties
@@ -147,20 +144,15 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
                 # Prioritize known iStrip characteristic UUIDs
                 for known_uuid in KNOWN_CHAR_UUIDS:
                     if known_uuid in writable_uuids:
-                        _LOGGER.debug(
-                            "Found known characteristic UUID: %s", known_uuid
-                        )
                         return known_uuid
 
                 # Fall back to the first writable characteristic
                 if writable_uuids:
-                    _LOGGER.debug(
-                        "Using first writable characteristic: %s", writable_uuids[0]
-                    )
                     return writable_uuids[0]
 
             finally:
                 await client.disconnect()
-        except Exception:
+        # Connection/discovery can fail in many BLE-stack-specific ways.
+        except Exception:  # noqa: BLE001
             _LOGGER.warning("Could not discover characteristics for %s", address)
         return None
