@@ -22,6 +22,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from .ble_helpers import find_notify_char
 from .const import DOMAIN, KNOWN_CHAR_UUIDS
 from .payload_generator import CommandType, PayloadGenerator
 
@@ -235,7 +236,7 @@ class IstripLight(LightEntity, RestoreEntity):
                         self._address,
                     )
 
-                notify_char_uuid = self._discover_notify_char_uuid_from_services()
+                notify_char_uuid = find_notify_char(self._client, self._char_uuid)
                 if notify_char_uuid:
                     try:
                         await self._client.start_notify(
@@ -303,34 +304,6 @@ class IstripLight(LightEntity, RestoreEntity):
                 return known_uuid
 
         return writable_uuids[0] if writable_uuids else None
-
-    def _discover_notify_char_uuid_from_services(self) -> str | None:
-        """Find a notify/indicate-capable characteristic.
-
-        Write and notify can live on separate characteristic UUIDs. Prefer
-        one in the same service as the write characteristic, falling back
-        to any notify characteristic found.
-        """
-        if not self._client or not self._client.is_connected:
-            return None
-
-        same_service_candidates: list[str] = []
-        other_candidates: list[str] = []
-
-        for service in self._client.services:
-            service_has_write_char = any(
-                str(char.uuid) == self._char_uuid for char in service.characteristics
-            )
-            for char in service.characteristics:
-                if "notify" in char.properties or "indicate" in char.properties:
-                    if service_has_write_char:
-                        same_service_candidates.append(str(char.uuid))
-                    else:
-                        other_candidates.append(str(char.uuid))
-
-        if same_service_candidates:
-            return same_service_candidates[0]
-        return other_candidates[0] if other_candidates else None
 
     async def _disconnect(self) -> None:
         """Disconnect from the BLE device."""

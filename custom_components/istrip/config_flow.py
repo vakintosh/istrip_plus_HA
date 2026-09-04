@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -15,9 +16,16 @@ from homeassistant.components.bluetooth import (
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS, CONF_NAME
 
+from .ble_helpers import find_notify_char
 from .const import DOMAIN, KNOWN_CHAR_UUIDS
+from .payload_generator import PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long to wait for the device to echo the join-group handshake back as
+# a notification before giving up on a candidate write characteristic and
+# trying the next one.
+PROBE_TIMEOUT = 2.0
 
 
 class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -114,7 +122,11 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def _discover_char_uuid(self, address: str) -> str | None:
-        """Connect to BLE device and find a writable characteristic UUID."""
+        """Find the device's real write characteristic, probing if needed.
+
+        Writes never error even when silently ignored, so presence alone
+        can't tell candidates apart -- see `_probe_for_write_char`.
+        """
         try:
             ble_device = async_ble_device_from_address(
                 self.hass, address, connectable=True
@@ -141,18 +153,84 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
                         ):
                             writable_uuids.append(str(char.uuid))
 
-                # Prioritize known iStrip characteristic UUIDs
+                if not writable_uuids:
+                    return None
+
+                # Try known-good UUIDs first, then anything else writable.
+                candidates = [u for u in KNOWN_CHAR_UUIDS if u in writable_uuids]
+                candidates += [u for u in writable_uuids if u not in candidates]
+
+                confirmed = await self._probe_for_write_char(client, candidates)
+                if confirmed:
+                    return confirmed
+
+                _LOGGER.warning(
+                    "Could not confirm a write characteristic for %s via the "
+                    "join-handshake echo; falling back to known UUID order",
+                    address,
+                )
                 for known_uuid in KNOWN_CHAR_UUIDS:
                     if known_uuid in writable_uuids:
                         return known_uuid
-
-                # Fall back to the first writable characteristic
-                if writable_uuids:
-                    return writable_uuids[0]
+                return writable_uuids[0]
 
             finally:
                 await client.disconnect()
         # Connection/discovery can fail in many BLE-stack-specific ways.
         except Exception:  # noqa: BLE001
             _LOGGER.warning("Could not discover characteristics for %s", address)
+        return None
+
+    async def _probe_for_write_char(
+        self, client: BleakClientWithServiceCache, candidates: list[str]
+    ) -> str | None:
+        """Send the join handshake to each candidate; return the one that echoes it back."""
+        join_hex = PayloadGenerator().get_join_group_payload()
+
+        for candidate in candidates:
+            notify_uuid = find_notify_char(client, candidate)
+            if not notify_uuid:
+                continue
+
+            confirmed = asyncio.Event()
+
+            # Bind as defaults to avoid a late-binding closure bug.
+            def _on_notify(
+                _sender: object,
+                data: bytearray,
+                _confirmed: asyncio.Event = confirmed,
+                _expected: str = join_hex,
+            ) -> None:
+                if data.hex() == _expected:
+                    _confirmed.set()
+
+            try:
+                await client.start_notify(notify_uuid, _on_notify)
+            except Exception as err:  # noqa: BLE001 - try the next candidate
+                _LOGGER.debug("Could not subscribe to %s: %s", notify_uuid, err)
+                continue
+
+            try:
+                await client.write_gatt_char(
+                    candidate, bytes.fromhex(join_hex), response=False
+                )
+                await asyncio.wait_for(confirmed.wait(), timeout=PROBE_TIMEOUT)
+            except TimeoutError:
+                _LOGGER.debug("No join-handshake echo from %s in time", candidate)
+                continue
+            except Exception as err:  # noqa: BLE001 - try the next candidate
+                _LOGGER.debug("Probing %s failed: %s", candidate, err)
+                continue
+            else:
+                _LOGGER.debug(
+                    "Confirmed write characteristic %s via join-handshake echo",
+                    candidate,
+                )
+                return candidate
+            finally:
+                try:
+                    await client.stop_notify(notify_uuid)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug("Could not unsubscribe from %s: %s", notify_uuid, err)
+
         return None
