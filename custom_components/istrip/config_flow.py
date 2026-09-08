@@ -24,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for iStrip+ BLE."""
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -147,9 +147,7 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
                 # Prioritize known iStrip characteristic UUIDs
                 for known_uuid in KNOWN_CHAR_UUIDS:
                     if known_uuid in writable_uuids:
-                        _LOGGER.debug(
-                            "Found known characteristic UUID: %s", known_uuid
-                        )
+                        _LOGGER.debug("Found known characteristic UUID: %s", known_uuid)
                         return known_uuid
 
                 # Fall back to the first writable characteristic
