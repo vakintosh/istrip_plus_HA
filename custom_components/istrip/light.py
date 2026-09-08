@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
@@ -27,13 +28,40 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.debounce import Debouncer
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 
 from .ble_helpers import find_notify_char
-from .const import DOMAIN, KNOWN_CHAR_UUIDS
+from .const import (
+    DEFAULT_SPEED,
+    DOMAIN,
+    EFFECT_DEFAULT_SPEEDS,
+    KNOWN_CHAR_UUIDS,
+    SPEED_SEND_INTERVAL,
+)
 from .payload_generator import CommandType, PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _clamp_speed(speed: int) -> int:
+    """Clamp to the device's 1-100 range.
+
+    The official app coerces a slider value of 0 up to 1 rather than sending
+    it (ClassicEffectFragment: `if (i == 0) i = 1;`).
+    """
+    return max(1, min(100, speed))
+
+
+@dataclass
+class IstripExtraStoredData(ExtraStoredData):
+    """Per-effect speeds, which are not expressible as entity attributes."""
+
+    effect_speeds: dict[str, int]
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a serialisable representation."""
+        return {"effect_speeds": self.effect_speeds}
 
 
 async def async_setup_entry(
@@ -72,7 +100,13 @@ class IstripLight(LightEntity, RestoreEntity):
         self._pg = PayloadGenerator()
         self._client: BleakClientWithServiceCache | None = None
         self._connected = False
-        self._effect_speed = 100
+
+        # Per-effect speeds, seeded from the defaults and overridable at
+        # runtime. _pending_speed holds a speed set while no effect was
+        # active, to be applied to whichever effect is selected next.
+        self._effect_speeds: dict[str, int] = dict(EFFECT_DEFAULT_SPEEDS)
+        self._pending_speed: int | None = None
+        self._speed_debouncer: Debouncer | None = None
         # Serializes connect/subscribe/join so a concurrent call can't race
         # ahead and send a command before the join handshake has completed.
         self._connect_lock = asyncio.Lock()
@@ -95,22 +129,13 @@ class IstripLight(LightEntity, RestoreEntity):
         """Turn on the light with optional color, brightness, or effect."""
         if ATTR_EFFECT in kwargs:
             effect_name = kwargs[ATTR_EFFECT]
+            self._adopt_pending_speed(effect_name)
             self._attr_effect = effect_name
-            brightness = self._attr_brightness
             if ATTR_BRIGHTNESS in kwargs:
                 self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
-                brightness = self._attr_brightness
-
-            device_brightness = max(10, int(brightness * 100 / 255))
 
             self._attr_is_on = True
-            payload = self._pg.get_effect_payload(
-                effect_name,
-                device_brightness,
-                self._effect_speed,
-                self._attr_rgb_color,
-            )
-            await self._send_payload(payload)
+            await self._send_payload(self._build_effect_payload(effect_name))
             return
 
         if ATTR_RGB_COLOR in kwargs:
@@ -127,13 +152,7 @@ class IstripLight(LightEntity, RestoreEntity):
         brightness = int(self._attr_brightness * 100 / 255)
 
         if self._attr_effect and ATTR_RGB_COLOR not in kwargs:
-            device_brightness = max(10, int(self._attr_brightness * 100 / 255))
-            payload = self._pg.get_effect_payload(
-                self._attr_effect,
-                device_brightness,
-                self._effect_speed,
-                self._attr_rgb_color,
-            )
+            payload = self._build_effect_payload(self._attr_effect)
         else:
             payload = self._pg.get_rgb_payload(r, g, b, brightness)
 
@@ -147,35 +166,71 @@ class IstripLight(LightEntity, RestoreEntity):
         await self._send_payload(payload)
 
     async def set_effect(self, effect_name: str, speed: int | None = None) -> None:
-        """Set an effect with optional speed."""
+        """Set an effect, optionally overriding that effect's speed."""
         if speed is not None:
-            self._effect_speed = max(1, min(100, speed))
+            self._store_speed(effect_name, speed)
 
+        self._adopt_pending_speed(effect_name)
         self._attr_effect = effect_name
-        device_brightness = max(10, int(self._attr_brightness * 100 / 255))
-        payload = self._pg.get_effect_payload(
-            effect_name,
-            device_brightness,
-            self._effect_speed,
-            self._attr_rgb_color,
-        )
+        payload = self._build_effect_payload(effect_name)
 
         if self._attr_is_on:
             await self._send_payload(payload)
 
     async def set_speed(self, speed: int) -> None:
-        """Set the speed for the current effect."""
-        self._effect_speed = max(1, min(100, speed))
+        """Set the speed of the active effect.
 
-        if self._attr_effect and self._attr_is_on:
-            device_brightness = max(10, int(self._attr_brightness * 100 / 255))
-            payload = self._pg.get_effect_payload(
-                self._attr_effect,
-                device_brightness,
-                self._effect_speed,
-                self._attr_rgb_color,
+        Mirrors the official app, which always stores the value and only
+        transmits it when an effect is running: ClassicEffectFragment.
+        sendSpeed calls setSpeed unconditionally, then guards the send with
+        getMode() > 0. Discarding the value instead would break the natural
+        order of setting a speed first and picking an effect second.
+        """
+        if self._attr_effect is None:
+            self._pending_speed = _clamp_speed(speed)
+            _LOGGER.debug(
+                "No effect active; holding speed %s for the next effect",
+                self._pending_speed,
             )
-            await self._send_payload(payload)
+            return
+
+        self._store_speed(self._attr_effect, speed)
+
+        if self._attr_is_on and self._speed_debouncer is not None:
+            await self._speed_debouncer.async_call()
+
+    def _speed_for(self, effect_name: str | None) -> int:
+        """Return the stored speed for an effect, or the device default."""
+        if effect_name is None:
+            return DEFAULT_SPEED
+        return self._effect_speeds.get(effect_name, DEFAULT_SPEED)
+
+    def _store_speed(self, effect_name: str, speed: int) -> None:
+        """Record the speed for a specific effect."""
+        self._effect_speeds[effect_name] = _clamp_speed(speed)
+
+    def _adopt_pending_speed(self, effect_name: str) -> None:
+        """Apply a speed that was set while no effect was active."""
+        if self._pending_speed is None:
+            return
+        self._effect_speeds[effect_name] = self._pending_speed
+        self._pending_speed = None
+
+    def _build_effect_payload(self, effect_name: str) -> str:
+        """Build an effect payload at that effect's stored speed."""
+        device_brightness = max(10, int(self._attr_brightness * 100 / 255))
+        return self._pg.get_effect_payload(
+            effect_name,
+            device_brightness,
+            self._speed_for(effect_name),
+            self._attr_rgb_color,
+        )
+
+    async def _async_send_active_effect(self) -> None:
+        """Resend the active effect. Debounced entry point for speed changes."""
+        if self._attr_effect is None or not self._attr_is_on:
+            return
+        await self._send_payload(self._build_effect_payload(self._attr_effect))
 
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to Home Assistant."""
@@ -193,6 +248,32 @@ class IstripLight(LightEntity, RestoreEntity):
                 self._attr_brightness = brightness
             if (effect := last_state.attributes.get(ATTR_EFFECT)) is not None:
                 self._attr_effect = effect
+
+        # Per-effect speeds cannot be expressed as entity attributes, so they
+        # travel as extra stored data. Without this they reset to defaults on
+        # every restart, which would be inconsistent with the effect itself
+        # being restored just above.
+        if (extra := await self.async_get_last_extra_data()) is not None:
+            stored = extra.as_dict().get("effect_speeds")
+            if isinstance(stored, dict):
+                self._effect_speeds.update(
+                    {
+                        name: _clamp_speed(value)
+                        for name, value in stored.items()
+                        if isinstance(value, int)
+                    }
+                )
+
+        # Collapse bursts of speed changes into one write. An automation bound
+        # to an input_number can fire far faster than the device can usefully
+        # respond; the official app throttles its own slider for this reason.
+        self._speed_debouncer = Debouncer(
+            self.hass,
+            _LOGGER,
+            cooldown=SPEED_SEND_INTERVAL,
+            immediate=True,
+            function=self._async_send_active_effect,
+        )
 
         # The device may not be advertising when Home Assistant starts, in
         # which case no scanner can see it yet and the initial connect below
@@ -220,9 +301,16 @@ class IstripLight(LightEntity, RestoreEntity):
             return
         self.hass.async_create_task(self._ensure_connected())
 
+    @property
+    def extra_restore_state_data(self) -> IstripExtraStoredData:
+        """Persist per-effect speeds across restarts."""
+        return IstripExtraStoredData(effect_speeds=dict(self._effect_speeds))
+
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from Home Assistant."""
         await super().async_will_remove_from_hass()
+        if self._speed_debouncer is not None:
+            self._speed_debouncer.async_shutdown()
         await self._disconnect()
 
     async def _ensure_connected(self) -> None:
@@ -396,7 +484,12 @@ class IstripLight(LightEntity, RestoreEntity):
             self._attr_rgb_color = state["rgb"]
             self._attr_brightness = state["brightness"]
             self._attr_effect = state["effect"]
-            self._effect_speed = state["speed"]
+            # A notification carries the speed of the effect reported in the
+            # same frame, so attribute it to that effect rather than to a
+            # single global value. This is how a physical IR remote change
+            # gets reflected back into the per-effect table.
+            if state["effect"] is not None:
+                self._store_speed(state["effect"], state["speed"])
 
             self.schedule_update_ha_state()
 
