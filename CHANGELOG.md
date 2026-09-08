@@ -1,3 +1,9 @@
+# [](https://github.com/vakintosh/istrip_plus_HA/compare/v0.4.2...v) (2026-09-08)
+
+
+### Features
+
+* per-effect speeds, persisted and throttled ([dfc6723](https://github.com/vakintosh/istrip_plus_HA/commit/dfc672346d4f195846cd7fdc23903d04366d47ea)), closes [#19](https://github.com/vakintosh/istrip_plus_HA/issues/19) [#20](https://github.com/vakintosh/istrip_plus_HA/issues/20)
 # [](https://github.com/vakintosh/istrip_plus_HA/compare/v0.4.1...v) (2026-09-08)
 
 
