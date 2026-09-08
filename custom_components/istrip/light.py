@@ -7,7 +7,14 @@ import logging
 from typing import Any
 
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
-from homeassistant.components.bluetooth import async_ble_device_from_address
+from homeassistant.components.bluetooth import (
+    BluetoothCallbackMatcher,
+    BluetoothChange,
+    BluetoothScanningMode,
+    BluetoothServiceInfoBleak,
+    async_ble_device_from_address,
+    async_register_callback,
+)
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_EFFECT,
@@ -17,7 +24,7 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -61,6 +68,7 @@ class IstripLight(LightEntity, RestoreEntity):
         """Initialize the iStrip light."""
         self._address = address
         self._char_uuid = char_uuid
+        self._entry_id = entry_id
         self._pg = PayloadGenerator()
         self._client: BleakClientWithServiceCache | None = None
         self._connected = False
@@ -186,7 +194,31 @@ class IstripLight(LightEntity, RestoreEntity):
             if (effect := last_state.attributes.get(ATTR_EFFECT)) is not None:
                 self._attr_effect = effect
 
+        # The device may not be advertising when Home Assistant starts, in
+        # which case no scanner can see it yet and the initial connect below
+        # does nothing. Watch for it appearing rather than staying dead until
+        # something happens to send a command.
+        self.async_on_remove(
+            async_register_callback(
+                self.hass,
+                self._async_device_seen,
+                BluetoothCallbackMatcher(address=self._address),
+                BluetoothScanningMode.ACTIVE,
+            )
+        )
+
         await self._ensure_connected()
+
+    @callback
+    def _async_device_seen(
+        self,
+        service_info: BluetoothServiceInfoBleak,
+        change: BluetoothChange,
+    ) -> None:
+        """Connect once a scanner reports the device, if not already connected."""
+        if self._connected:
+            return
+        self.hass.async_create_task(self._ensure_connected())
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from Home Assistant."""
@@ -207,10 +239,15 @@ class IstripLight(LightEntity, RestoreEntity):
                     self.hass, self._address, connectable=True
                 )
                 if ble_device is None:
-                    _LOGGER.error(
-                        "No connectable Bluetooth scanner currently sees %s",
+                    # Normal at startup: the lamp simply has not advertised
+                    # yet. _async_device_seen retries as soon as a scanner
+                    # reports it, so this is not an error.
+                    _LOGGER.debug(
+                        "No connectable Bluetooth scanner sees %s yet; will "
+                        "connect when it is next seen",
                         self._address,
                     )
+                    self._attr_available = False
                     return
 
                 self._client = await establish_connection(
@@ -235,6 +272,7 @@ class IstripLight(LightEntity, RestoreEntity):
                         self._char_uuid,
                         self._address,
                     )
+                    self._persist_char_uuid()
 
                 notify_char_uuid = find_notify_char(self._client, self._char_uuid)
                 if notify_char_uuid:
@@ -277,6 +315,7 @@ class IstripLight(LightEntity, RestoreEntity):
                 # Only mark connected once the join handshake has gone out,
                 # so a waiting caller never sends a command ahead of it.
                 self._connected = True
+                self._attr_available = True
 
             # Connection/discovery can fail in many BLE-stack-specific ways;
             # treat any of them as a failed connection attempt.
@@ -284,6 +323,27 @@ class IstripLight(LightEntity, RestoreEntity):
                 _LOGGER.error("Failed to connect to device at %s", self._address)
                 self._connected = False
                 self._client = None
+                self._attr_available = False
+
+    def _persist_char_uuid(self) -> None:
+        """Store a runtime-discovered characteristic back on the config entry.
+
+        Without this the entry keeps no char_uuid at all after the v3
+        migration clears an OTA characteristic, and every connection pays for
+        discovery again.
+        """
+        entry = self.hass.config_entries.async_get_entry(self._entry_id)
+        if entry is None or entry.data.get("char_uuid") == self._char_uuid:
+            return
+
+        self.hass.config_entries.async_update_entry(
+            entry, data={**entry.data, "char_uuid": self._char_uuid}
+        )
+        _LOGGER.debug(
+            "Stored characteristic %s on the config entry for %s",
+            self._char_uuid,
+            self._address,
+        )
 
     def _discover_char_uuid_from_services(self) -> str | None:
         """Find the best writable characteristic UUID from the connected client."""
