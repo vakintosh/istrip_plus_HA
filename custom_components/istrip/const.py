@@ -21,3 +21,31 @@ KNOWN_CHAR_UUIDS = [
     "0000ac52-1212-efde-1523-785fedbeda25",
     "0000ae01-0000-1000-8000-00805f9b34fb",
 ]
+
+# Speed the device itself defaults to (DataManager.speed in the official app).
+DEFAULT_SPEED = 100
+
+# Minimum seconds between speed commands. The official app throttles its
+# speed slider to 150ms while dragging and guarantees a final send on
+# release; without this, an automation bound to an input_number floods the
+# device with BLE writes.
+SPEED_SEND_INTERVAL = 0.15
+
+# Per-effect default speeds: slow for fades and breathing, fast for strobes
+# and flashes. The official app has no equivalent, it keeps one global speed,
+# but a sensible starting point per effect is a better fit for Home Assistant
+# than making the user re-tune the slider every time they switch.
+EFFECT_DEFAULT_SPEEDS: dict[str, int] = {
+    "7-Color Fade": 1,
+    "3-Color Fade": 1,
+    "7-Color Breathing": 1,
+    "3-Color Breathing": 1,
+    "Red Breathing": 1,
+    "Blue Breathing": 1,
+    "Green Breathing": 1,
+    "Red Strobe": 100,
+    "Blue Strobe": 100,
+    "Green Strobe": 100,
+    "7-Color Flash": 100,
+    "3-Color Flash": 100,
+}
