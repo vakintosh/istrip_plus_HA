@@ -1,3 +1,9 @@
+# [](https://github.com/vakintosh/istrip_plus_HA/compare/v0.4.1...v) (2026-09-08)
+
+
+### Bug Fixes
+
+* persist discovered characteristic, retry on advertisement, restore version ([01d00b7](https://github.com/vakintosh/istrip_plus_HA/commit/01d00b7b1f3f7ad1d795045ef668661b5e60ed30))
 # [](https://github.com/vakintosh/istrip_plus_HA/compare/v0.4.0...v) (2026-09-08)
 
 
