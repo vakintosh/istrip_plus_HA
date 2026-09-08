@@ -2,9 +2,13 @@
   "domain": "istrip",
   "name": "iStrip+ BLE Light",
   "bluetooth": [],
-  "codeowners": ["@vakintosh"],
+  "codeowners": [
+    "@vakintosh"
+  ],
   "config_flow": true,
-  "dependencies": ["bluetooth_adapters"],
+  "dependencies": [
+    "bluetooth_adapters"
+  ],
   "documentation": "https://github.com/vakintosh/istrip_plus_HA",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/vakintosh/istrip_plus_HA/issues",
@@ -13,5 +17,5 @@
     "bleak-retry-connector>=3.5.0",
     "pycryptodome>=3.20.0"
   ],
-  "version": "0.4.0"
+  "version": "0.4.1"
 }
