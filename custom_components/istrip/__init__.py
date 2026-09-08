@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
-from .const import DOMAIN
+from .const import DOMAIN, OTA_WRITE_CHAR_UUID
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +36,32 @@ SET_SPEED_SCHEMA = vol.Schema(
         vol.Required(CONF_SPEED): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
     }
 )
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate an old config entry."""
+    if entry.version < 3:
+        # Entries created before v3 could have the OTA (firmware update)
+        # characteristic stored as the write characteristic. Writes to it are
+        # accepted and silently discarded by the device, so the light never
+        # responds. Drop the stored value and let the integration re-discover
+        # a real control characteristic on next connect.
+        # See docs/ble-protocol.md.
+        data = dict(entry.data)
+        stored = data.get("char_uuid") or ""
+
+        if stored.lower() == OTA_WRITE_CHAR_UUID:
+            del data["char_uuid"]
+            _LOGGER.info(
+                "Clearing stored OTA characteristic %s for %s; a control "
+                "characteristic will be re-discovered on the next connection",
+                stored,
+                data.get("address"),
+            )
+
+        hass.config_entries.async_update_entry(entry, data=data, version=3)
+
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
