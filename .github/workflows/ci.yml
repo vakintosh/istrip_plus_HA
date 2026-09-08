@@ -22,7 +22,10 @@ jobs:
           python-version: "3.13"
 
       - name: Install ruff
-        run: pip install "ruff>=0.15.1"
+        # Pinned deliberately. Ruff's default rule set changes between
+        # minor releases, so an unpinned install makes CI disagree with
+        # local runs: 0.16.6 reports errors that 0.15.1 does not.
+        run: pip install "ruff==0.15.1"
 
       - name: ruff check
         run: ruff check custom_components/
@@ -45,3 +48,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # Brand assets are added in #20. Re-enable this check once that
+          # lands, or once the integration is listed in home-assistant/brands.
+          ignore: brands

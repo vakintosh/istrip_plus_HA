@@ -147,9 +147,7 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
                 # Prioritize known iStrip characteristic UUIDs
                 for known_uuid in KNOWN_CHAR_UUIDS:
                     if known_uuid in writable_uuids:
-                        _LOGGER.debug(
-                            "Found known characteristic UUID: %s", known_uuid
-                        )
+                        _LOGGER.debug("Found known characteristic UUID: %s", known_uuid)
                         return known_uuid
 
                 # Fall back to the first writable characteristic
