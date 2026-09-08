@@ -18,6 +18,7 @@ class CommandType(IntEnum):
     SPEED = 6
     LIGHT = 7
 
+
 _EFFECT_MODE_REVERSE: dict[int, str] = {}
 
 
