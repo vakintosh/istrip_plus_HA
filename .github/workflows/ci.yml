@@ -1,0 +1,57 @@
+---
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff
+        # Pinned deliberately. Ruff's default rule set changes between
+        # minor releases, so an unpinned install makes CI disagree with
+        # local runs: 0.16.6 reports errors that 0.15.1 does not.
+        run: pip install "ruff==0.15.1"
+
+      - name: ruff check
+        run: ruff check custom_components/
+
+      - name: ruff format
+        run: ruff format --check custom_components/
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS
+    # Only on main. The HACS action validates the repository as HACS itself
+    # sees it, which lags behind an open PR's branch, so it reports stale
+    # results on pull requests.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # Brand assets are added in #20. Re-enable this check once that
+          # lands, or once the integration is listed in home-assistant/brands.
+          ignore: brands

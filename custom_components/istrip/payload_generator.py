@@ -18,6 +18,7 @@ class CommandType(IntEnum):
     SPEED = 6
     LIGHT = 7
 
+
 _EFFECT_MODE_REVERSE: dict[int, str] = {}
 
 
@@ -51,7 +52,7 @@ class PayloadGenerator:
 
     GROUP_ID = 1
 
-    EFFECT_MODES: dict[str, int] = {
+    EFFECT_MODES: dict[str, int] = {  # noqa: RUF012
         "3-Color Breathing": 6,
         "3-Color Fade": 2,
         "3-Color Flash": 10,
@@ -71,6 +72,19 @@ class PayloadGenerator:
         self._cipher = AES.new(self.KEY, AES.MODE_ECB)
         if not _EFFECT_MODE_REVERSE:
             _EFFECT_MODE_REVERSE.update({v: k for k, v in self.EFFECT_MODES.items()})
+
+    def get_join_group_payload(self) -> str:
+        """Generate the payload to join the device's group.
+
+        Must be sent exactly once per connection, before any RGB/effect/off
+        command -- without it, the device silently ignores every
+        subsequent command.
+        """
+        payload = bytearray(16)
+        payload[0:4] = self.HEADER
+        payload[4] = CommandType.JOIN_GROUP_REQUEST
+        payload[5] = self.GROUP_ID
+        return self._encrypt_and_format(payload)
 
     def get_rgb_payload(
         self,

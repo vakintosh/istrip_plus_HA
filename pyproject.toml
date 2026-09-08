@@ -8,5 +8,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.1",
+    # Pinned: ruff's default rule set changes between minor releases, so an
+    # unpinned range makes local runs disagree with CI.
+    "ruff==0.15.1",
 ]
