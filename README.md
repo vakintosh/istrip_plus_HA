@@ -41,10 +41,10 @@ This custom integration replicates core features of the official iStrip+ app, en
 ### Option 2: Manual installation
 
 1. **Download the integration:**  
-  Clone or download this repository.
+   Clone or download this repository.
 
 2. **Copy files:**  
-  Copy `custom_components/istrip` to your Home Assistant `custom_components/` directory.
+   Copy `custom_components/istrip` to your Home Assistant `custom_components/` directory.
 
 3. **Restart Home Assistant.**
 

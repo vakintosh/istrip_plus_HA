@@ -47,7 +47,7 @@ class IstripLight(LightEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_name = None
     _attr_translation_key = "istrip_light"
-    _attr_supported_color_modes: set[ColorMode] = {ColorMode.RGB} # noqa: RUF012
+    _attr_supported_color_modes: set[ColorMode] = {ColorMode.RGB}  # noqa: RUF012
     _attr_color_mode = ColorMode.RGB
     _attr_supported_features = LightEntityFeature.EFFECT
 

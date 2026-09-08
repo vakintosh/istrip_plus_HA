@@ -1,3 +1,4 @@
+---
 name: Auto Release on PR Merge
 
 on:
@@ -6,14 +7,16 @@ on:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Set up Node.js (for changelog tool)
         uses: actions/setup-node@v4
@@ -22,13 +25,12 @@ jobs:
 
       - name: Install tools
         run: |
-          sudo apt-get install -y jq
           npm install -g conventional-changelog-cli
 
       - name: Get current version
         id: get_version
         run: |
-          VERSION=$(jq -r .version istrip/manifest.json)
+          VERSION=$(jq -r .version custom_components/istrip/manifest.json)
           echo "current=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Detect bump type from PR title
@@ -42,12 +44,15 @@ jobs:
           elif echo "$TITLE" | grep -qE '^fix(\(|\:)'; then
             BUMP="patch"
           else
-            BUMP="patch"
+            # docs/ci/chore/test/refactor/style and anything else ships no
+            # user-visible change, so cut no release at all.
+            BUMP="none"
           fi
           echo "type=$BUMP" >> "$GITHUB_OUTPUT"
 
       - name: Bump version
         id: bump_version
+        if: steps.bump.outputs.type != 'none'
         run: |
           OLD="${{ steps.get_version.outputs.current }}"
 
@@ -74,31 +79,47 @@ jobs:
           NEW="$major.$minor.$patch"
           echo "new=$NEW" >> "$GITHUB_OUTPUT"
 
-          # Update manifest.json safely
-          jq --arg v "$NEW" '.version = $v' istrip/manifest.json > tmp && mv tmp istrip/manifest.json
+          # Keep manifest.json and pyproject.toml in lockstep. They have
+          # drifted before when this was done by hand.
+          MANIFEST=custom_components/istrip/manifest.json
+          jq --arg v "$NEW" '.version = $v' "$MANIFEST" > tmp
+          mv tmp "$MANIFEST"
+          sed -i -E "s/^version = \".*\"/version = \"$NEW\"/" pyproject.toml
+
+          # Fail loudly rather than tagging a release with a stale version.
+          grep -q "\"version\": \"$NEW\"" "$MANIFEST"
+          grep -q "^version = \"$NEW\"" pyproject.toml
 
       - name: Generate CHANGELOG
+        if: steps.bump.outputs.type != 'none'
         run: |
-          # Generate changelog (adds to CHANGELOG.md)
+          touch CHANGELOG.md
           conventional-changelog -p angular -i CHANGELOG.md -s
+          # Release body should describe this release only, not the whole file.
+          conventional-changelog -p angular -r 1 > RELEASE_NOTES.md
 
       - name: Commit and tag
+        if: steps.bump.outputs.type != 'none'
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}
-          git add istrip/manifest.json CHANGELOG.md
-          git commit -m "Release v${{ steps.bump_version.outputs.new }}"
+          REPO="${{ github.repository }}"
+          git remote set-url origin \
+            "https://x-access-token:${GH_PAT}@github.com/${REPO}"
+          git add custom_components/istrip/manifest.json \
+            pyproject.toml CHANGELOG.md
+          git commit -m "chore(release): v${{ steps.bump_version.outputs.new }}"
           git tag "v${{ steps.bump_version.outputs.new }}"
-          git push origin main --follow-tags
+          git push origin HEAD:main --follow-tags
 
       - name: Create GitHub Release
+        if: steps.bump.outputs.type != 'none'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.bump_version.outputs.new }}
           name: v${{ steps.bump_version.outputs.new }}
-          body_path: CHANGELOG.md
+          body_path: RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
