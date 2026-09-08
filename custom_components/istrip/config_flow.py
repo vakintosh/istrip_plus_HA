@@ -31,7 +31,7 @@ PROBE_TIMEOUT = 2.0
 class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for iStrip+ BLE."""
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize the config flow."""
