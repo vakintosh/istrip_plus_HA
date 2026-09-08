@@ -42,6 +42,10 @@ jobs:
 
   hacs:
     name: HACS
+    # Only on main. The HACS action validates the repository as HACS itself
+    # sees it, which lags behind an open PR's branch, so it reports stale
+    # results on pull requests.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
