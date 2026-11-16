@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -13,11 +16,13 @@ concurrency:
 jobs:
   lint:
     name: Ruff
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6, Node 24
         with:
           python-version: "3.13"
 
@@ -28,17 +33,33 @@ jobs:
         run: pip install "ruff==0.15.1"
 
       - name: ruff check
-        run: ruff check custom_components/
+        run: ruff check custom_components/ tests/
 
       - name: ruff format
-        run: ruff format --check custom_components/
+        run: ruff format --check custom_components/ tests/
+
+  tests:
+    name: Controller tests (HA 2026.11.1)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6, Node 24
+        with:
+          python-version: "3.14"
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.in
+      - run: python -m pytest -q tests
 
   hassfest:
     name: Hassfest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: home-assistant/actions/hassfest@master
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
+        with:
+          persist-credentials: false
+      - uses: home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361
 
   hacs:
     name: HACS
@@ -46,11 +67,14 @@ jobs:
     # sees it, which lags behind an open PR's branch, so it reports stale
     # results on pull requests.
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: hacs/action@main
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, Node 24
         with:
+          persist-credentials: false
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa
+        with:
+          comment: false
           category: integration
           # Brand assets are added in #20. Re-enable this check once that
           # lands, or once the integration is listed in home-assistant/brands.

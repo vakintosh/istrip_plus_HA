@@ -13,11 +13,13 @@ from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
     async_discovered_service_info,
 )
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS, CONF_NAME
+from homeassistant.core import callback
 
 from .ble_helpers import find_notify_char
-from .const import DOMAIN, KNOWN_CHAR_UUIDS
+from .const import CONTROL_SERVICE_UUID, DOMAIN, KNOWN_CHAR_UUIDS
+from .options_flow import IstripOptionsFlow
 from .payload_generator import PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,6 +34,12 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for iStrip+ BLE."""
 
     VERSION = 3
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> IstripOptionsFlow:
+        """Keep protocol permission in configuration, not a second mode switch."""
+        return IstripOptionsFlow()
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -146,6 +154,8 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 writable_uuids: list[str] = []
                 for service in client.services:
+                    if str(service.uuid).lower() != CONTROL_SERVICE_UUID:
+                        continue
                     for char in service.characteristics:
                         if (
                             "write" in char.properties
@@ -156,9 +166,10 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
                 if not writable_uuids:
                     return None
 
-                # Try known-good UUIDs first, then anything else writable.
+                # Never probe unknown or firmware-update characteristics.
                 candidates = [u for u in KNOWN_CHAR_UUIDS if u in writable_uuids]
-                candidates += [u for u in writable_uuids if u not in candidates]
+                if not candidates:
+                    return None
 
                 confirmed = await self._probe_for_write_char(client, candidates)
                 if confirmed:
@@ -172,7 +183,7 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
                 for known_uuid in KNOWN_CHAR_UUIDS:
                     if known_uuid in writable_uuids:
                         return known_uuid
-                return writable_uuids[0]
+                return None
 
             finally:
                 await client.disconnect()

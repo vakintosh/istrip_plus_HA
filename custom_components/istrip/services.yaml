@@ -1,6 +1,6 @@
 set_speed:
   name: Set Speed
-  description: Set the animation speed of an iStrip+ light (0-100).
+  description: Set the animation speed of an iStrip+ light (1-100).
   fields:
     entity_id:
       description: Target light entity_id
@@ -10,11 +10,11 @@ set_speed:
         entity:
           domain: light
     speed:
-      description: Speed value (0..100)
+      description: Speed value (1..100)
       required: true
       selector:
         number:
-          min: 0
+          min: 1
           max: 100
           step: 1
 
@@ -29,7 +29,7 @@ set_effect:
         entity:
           domain: light
     effect:
-      description: Effect name (Static, Fade7, Strobe, Flash)
+      description: Effect name from the light's supported effect list.
       required: true
       selector:
         select:
@@ -48,10 +48,39 @@ set_effect:
             - Green Strobe
 
     speed:
-      description: Optional speed (0..100) to apply with the effect
+      description: Optional speed (1..100) to apply with the effect
       required: false
       selector:
         number:
-          min: 0
+          min: 1
           max: 100
           step: 1
+
+start_timed_music:
+  name: Start timed sound response
+  description: >-
+    Save the current static state and run controller microphone mode temporarily.
+    Requires sound-reactive permission in Configure. Restart or ambiguous control cancels
+    automatic restoration and retains a reconciliation record.
+  target:
+    entity:
+      integration: istrip
+      domain: light
+  fields:
+    duration:
+      name: Duration
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+
+cancel_timed_return:
+  name: Cancel timed return
+  description: Discard the timer or recovery record without changing the strip.
+  target:
+    entity:
+      integration: istrip
+      domain: light

@@ -1,5 +1,8 @@
 *.apk
 venv
+.venv/
+.pytest_cache/
+.ruff_cache/
 .history
 __pycache__
 *.txt

@@ -6,6 +6,8 @@ from enum import IntEnum
 
 from Crypto.Cipher import AES
 
+from .controls import MUSIC_STYLES, integer
+
 
 class CommandType(IntEnum):
     """Command types used in the LED strip communication."""
@@ -86,6 +88,21 @@ class PayloadGenerator:
         payload[5] = self.GROUP_ID
         return self._encrypt_and_format(payload)
 
+    def get_microphone_payload(self, style: str, sensitivity: int) -> str:
+        """Build controller-mic RHYTHM, never phone audio/FFT.
+
+        See docs/controller-controls.md for evidence and qualification limits.
+        """
+        if style not in MUSIC_STYLES:
+            raise ValueError("Unknown music style")
+        integer(sensitivity, 0, 100)
+        payload = bytearray(16)
+        payload[:4] = self.HEADER
+        payload[4:9] = bytes(
+            (CommandType.RHYTHM, self.GROUP_ID, MUSIC_STYLES[style], 0, sensitivity)
+        )
+        return self._encrypt_and_format(payload)
+
     def get_rgb_payload(
         self,
         red: int,
@@ -107,6 +124,14 @@ class PayloadGenerator:
 
         payload[10] = brightness
         payload[11] = speed
+        return self._encrypt_and_format(payload)
+
+    def get_brightness_payload(self, brightness: int) -> str:
+        """Build documented LIGHT0x07 without changing colour or mode."""
+        integer(brightness, 0, 100)
+        payload = bytearray(16)
+        payload[:4] = self.HEADER
+        payload[4:7] = bytes((CommandType.LIGHT, self.GROUP_ID, brightness))
         return self._encrypt_and_format(payload)
 
     def send_led_off(self, brightness: int = 0, speed: int = 100) -> str:
@@ -182,6 +207,12 @@ class PayloadGenerator:
             )
 
         command_type = decrypted_payload[4]
+        if command_type == CommandType.LIGHT:
+            level = integer(decrypted_payload[6], 0, 100)
+            return {
+                "command_type": command_type,
+                "brightness": int(level * 255 / 100),
+            }
         mode = decrypted_payload[6]
         red = decrypted_payload[7]
         green = decrypted_payload[8]

@@ -7,6 +7,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from homeassistant.components.bluetooth import (
     BluetoothCallbackMatcher,
@@ -27,18 +29,24 @@ from homeassistant.components.light import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddEntitiesCallback,
+    async_get_current_platform,
+)
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 
 from .ble_helpers import find_notify_char
 from .const import (
+    CONTROL_SERVICE_UUID,
     DEFAULT_SPEED,
     DOMAIN,
     EFFECT_DEFAULT_SPEEDS,
     KNOWN_CHAR_UUIDS,
     SPEED_SEND_INTERVAL,
 )
+from .controller import ControllerMixin, serialized
+from .controls import LEGACY_MUSIC_EFFECT, MUSIC_EFFECT, integer, map_rgb
 from .payload_generator import CommandType, PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,10 +81,38 @@ async def async_setup_entry(
     address: str = entry.data["address"]
     char_uuid: str | None = entry.data.get("char_uuid")
     name: str = entry.data.get("name", "iStrip")
-    async_add_entities([IstripLight(address, char_uuid, name, entry.entry_id)])
+    light = IstripLight(address, char_uuid, name, entry.entry_id)
+    entry.runtime_data["light"] = light
+    async_add_entities([light])
+    platform = async_get_current_platform()
+    platform.async_register_entity_service(
+        "set_effect",
+        {
+            vol.Required("effect"): vol.In(list(light._pg.EFFECT_MODES)),
+            vol.Optional("speed"): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+        },
+        "async_service_set_effect",
+    )
+    platform.async_register_entity_service(
+        "set_speed",
+        {vol.Required("speed"): vol.All(cv.positive_int, vol.Range(min=1, max=100))},
+        "set_speed",
+    )
+    platform.async_register_entity_service(
+        "start_timed_music",
+        {
+            vol.Required("duration"): vol.All(
+                cv.positive_int, vol.Range(min=1, max=86400)
+            )
+        },
+        "async_start_timed_music",
+    )
+    platform.async_register_entity_service(
+        "cancel_timed_return", {}, "async_cancel_timed_return"
+    )
 
 
-class IstripLight(LightEntity, RestoreEntity):
+class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
     """Representation of an iStrip+ BLE LED light."""
 
     _attr_has_entity_name = True
@@ -95,11 +131,12 @@ class IstripLight(LightEntity, RestoreEntity):
     ) -> None:
         """Initialize the iStrip light."""
         self._address = address
-        self._char_uuid = char_uuid
+        self._char_uuid = char_uuid if char_uuid in KNOWN_CHAR_UUIDS else None
         self._entry_id = entry_id
         self._pg = PayloadGenerator()
         self._client: BleakClientWithServiceCache | None = None
         self._connected = False
+        self._init_controls()
 
         # Per-effect speeds, seeded from the defaults and overridable at
         # runtime. _pending_speed holds a speed set while no effect was
@@ -125,10 +162,39 @@ class IstripLight(LightEntity, RestoreEntity):
             model="iStrip+ BLE",
         )
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose ownership and experimental state without private configuration."""
+        record = self.journal.record
+        return {
+            "controller_microphone": self._music_active,
+            "experimental_music_protocol": self.settings.experimental_music,
+            "timed_return_status": record["status"] if record else "idle",
+            "timed_return_deadline": record["deadline"] if record else None,
+        }
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light with optional color, brightness, or effect."""
+        if ATTR_BRIGHTNESS in kwargs:
+            integer(kwargs[ATTR_BRIGHTNESS], 0, 255)
+        if ATTR_EFFECT in kwargs and kwargs[ATTR_EFFECT] not in self._pg.EFFECT_MODES:
+            raise ValueError("Unknown effect")
+        await self._async_turn_on_locked(**kwargs)
+
+    @serialized
+    async def _async_turn_on_locked(self, **kwargs: Any) -> None:
+        """Apply a validated light command while owning the command lock."""
+        if self._attr_is_on and set(kwargs) == {ATTR_BRIGHTNESS}:
+            brightness = kwargs[ATTR_BRIGHTNESS]
+            await self._send_payload(
+                self._pg.get_brightness_payload(int(brightness * 100 / 255))
+            )
+            self._attr_brightness = brightness
+            return
+
         if ATTR_EFFECT in kwargs:
             effect_name = kwargs[ATTR_EFFECT]
+            self._music_active = False
             self._adopt_pending_speed(effect_name)
             self._attr_effect = effect_name
             if ATTR_BRIGHTNESS in kwargs:
@@ -136,9 +202,16 @@ class IstripLight(LightEntity, RestoreEntity):
 
             self._attr_is_on = True
             await self._send_payload(self._build_effect_payload(effect_name))
+            if ATTR_BRIGHTNESS in kwargs:
+                await self._send_payload(
+                    self._pg.get_brightness_payload(
+                        int(self._attr_brightness * 100 / 255)
+                    )
+                )
             return
 
         if ATTR_RGB_COLOR in kwargs:
+            self._music_active = False
             self._attr_effect = None
             self._attr_rgb_color = kwargs[ATTR_RGB_COLOR]
 
@@ -147,6 +220,16 @@ class IstripLight(LightEntity, RestoreEntity):
         if ATTR_BRIGHTNESS in kwargs:
             self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
 
+        if self._music_active:
+            await self._write_music()
+            if ATTR_BRIGHTNESS in kwargs:
+                await self._send_payload(
+                    self._pg.get_brightness_payload(
+                        int(self._attr_brightness * 100 / 255)
+                    )
+                )
+            return
+
         # Always convert to the device's 0-100 scale, even when brightness
         # wasn't explicitly passed (e.g. a color-only call while already on).
         brightness = int(self._attr_brightness * 100 / 255)
@@ -154,19 +237,38 @@ class IstripLight(LightEntity, RestoreEntity):
         if self._attr_effect and ATTR_RGB_COLOR not in kwargs:
             payload = self._build_effect_payload(self._attr_effect)
         else:
-            payload = self._pg.get_rgb_payload(r, g, b, brightness)
+            payload = self._pg.get_rgb_payload(
+                *map_rgb((r, g, b), self.settings.rgb_order), brightness
+            )
 
         self._attr_is_on = True
         await self._send_payload(payload)
+        if ATTR_BRIGHTNESS in kwargs:
+            await self._send_payload(self._pg.get_brightness_payload(brightness))
 
+    @serialized
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
         self._attr_is_on = False
+        self._music_active = False
+        self._attr_effect = None
         payload = self._pg.send_led_off()
         await self._send_payload(payload)
 
     async def set_effect(self, effect_name: str, speed: int | None = None) -> None:
         """Set an effect, optionally overriding that effect's speed."""
+        if effect_name not in self._pg.EFFECT_MODES:
+            raise ValueError("Unknown effect")
+        if speed is not None:
+            integer(speed, 1, 100)
+        await self._async_set_effect_locked(effect_name, speed)
+
+    @serialized
+    async def _async_set_effect_locked(
+        self, effect_name: str, speed: int | None
+    ) -> None:
+        """Apply a validated effect without revoking ownership on rejection."""
+        self._music_active = False
         if speed is not None:
             self._store_speed(effect_name, speed)
 
@@ -177,6 +279,10 @@ class IstripLight(LightEntity, RestoreEntity):
         if self._attr_is_on:
             await self._send_payload(payload)
 
+    async def async_service_set_effect(self, effect: str, speed: int | None = None):
+        """Preserve the original service field name on integration-owned targets."""
+        await self.set_effect(effect, speed)
+
     async def set_speed(self, speed: int) -> None:
         """Set the speed of the active effect.
 
@@ -186,16 +292,21 @@ class IstripLight(LightEntity, RestoreEntity):
         getMode() > 0. Discarding the value instead would break the natural
         order of setting a speed first and picking an effect second.
         """
-        if self._attr_effect is None:
-            self._pending_speed = _clamp_speed(speed)
-            _LOGGER.debug(
-                "No effect active; holding speed %s for the next effect",
-                self._pending_speed,
-            )
-            return
-
-        self._store_speed(self._attr_effect, speed)
-
+        async with self._command_lock:
+            if self._music_active:
+                raise ValueError("Effect speed does not control microphone modes")
+            if type(speed) is not int or not 1 <= speed <= 100:
+                raise ValueError("Speed must be an integer from 1 to 100")
+            await self._revoke_return()
+            if self._attr_effect is None:
+                self._pending_speed = speed
+                await self._cancel_return()
+                self._controls_changed()
+                return
+            self._store_speed(self._attr_effect, speed)
+            await self._cancel_return()
+            self._controls_changed()
+        # Debouncer may invoke the callback immediately; do not hold its lock.
         if self._attr_is_on and self._speed_debouncer is not None:
             await self._speed_debouncer.async_call()
 
@@ -223,18 +334,20 @@ class IstripLight(LightEntity, RestoreEntity):
             effect_name,
             device_brightness,
             self._speed_for(effect_name),
-            self._attr_rgb_color,
+            map_rgb(self._attr_rgb_color, self.settings.rgb_order),
         )
 
     async def _async_send_active_effect(self) -> None:
         """Resend the active effect. Debounced entry point for speed changes."""
-        if self._attr_effect is None or not self._attr_is_on:
-            return
-        await self._send_payload(self._build_effect_payload(self._attr_effect))
+        async with self._command_lock:
+            if self._attr_effect is None or not self._attr_is_on or self._music_active:
+                return
+            await self._send_payload(self._build_effect_payload(self._attr_effect))
 
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to Home Assistant."""
         await super().async_added_to_hass()
+        await self._load_controls()
 
         # Restore the last known color/brightness/effect across a HA
         # restart, since the device has no reliable way to be asked for
@@ -247,7 +360,15 @@ class IstripLight(LightEntity, RestoreEntity):
             if (brightness := last_state.attributes.get(ATTR_BRIGHTNESS)) is not None:
                 self._attr_brightness = brightness
             if (effect := last_state.attributes.get(ATTR_EFFECT)) is not None:
-                self._attr_effect = effect
+                if effect in (MUSIC_EFFECT, LEGACY_MUSIC_EFFECT):
+                    # Restored state is optimistic, but must not masquerade as
+                    # steady RGB. Merely marking it never restarts device music.
+                    self._attr_effect = MUSIC_EFFECT
+                    self._music_active = True
+                else:
+                    self._attr_effect = (
+                        effect if effect in self._pg.EFFECT_MODES else None
+                    )
 
         # Per-effect speeds cannot be expressed as entity attributes, so they
         # travel as extra stored data. Without this they reset to defaults on
@@ -309,6 +430,7 @@ class IstripLight(LightEntity, RestoreEntity):
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from Home Assistant."""
         await super().async_will_remove_from_hass()
+        await self._unload_controls()
         if self._speed_debouncer is not None:
             self._speed_debouncer.async_shutdown()
         await self._disconnect()
@@ -346,21 +468,16 @@ class IstripLight(LightEntity, RestoreEntity):
                 )
                 _LOGGER.debug("Connected to iStrip device at %s", self._address)
 
-                # If char_uuid was not discovered during setup, find it now
+                # Revalidate service membership even for a stored known UUID.
+                self._char_uuid = self._discover_char_uuid_from_services()
                 if not self._char_uuid:
-                    self._char_uuid = self._discover_char_uuid_from_services()
-                    if not self._char_uuid:
-                        _LOGGER.error(
-                            "No writable characteristic found on %s", self._address
-                        )
-                        await self._disconnect()
-                        return
-                    _LOGGER.info(
-                        "Discovered characteristic UUID %s on %s",
-                        self._char_uuid,
-                        self._address,
+                    _LOGGER.error(
+                        "No lighting-control characteristic on %s", self._address
                     )
-                    self._persist_char_uuid()
+                    await self._disconnect()
+                    self._attr_available = False
+                    return
+                self._persist_char_uuid()
 
                 notify_char_uuid = find_notify_char(self._client, self._char_uuid)
                 if notify_char_uuid:
@@ -399,6 +516,9 @@ class IstripLight(LightEntity, RestoreEntity):
                     _LOGGER.warning(
                         "Failed to send join-group handshake to %s", self._address
                     )
+                    await self._disconnect()
+                    self._attr_available = False
+                    return
 
                 # Only mark connected once the join handshake has gone out,
                 # so a waiting caller never sends a command ahead of it.
@@ -409,8 +529,7 @@ class IstripLight(LightEntity, RestoreEntity):
             # treat any of them as a failed connection attempt.
             except Exception:  # noqa: BLE001
                 _LOGGER.error("Failed to connect to device at %s", self._address)
-                self._connected = False
-                self._client = None
+                await self._disconnect()
                 self._attr_available = False
 
     def _persist_char_uuid(self) -> None:
@@ -440,6 +559,8 @@ class IstripLight(LightEntity, RestoreEntity):
 
         writable_uuids: list[str] = []
         for service in self._client.services:
+            if str(service.uuid).lower() != CONTROL_SERVICE_UUID:
+                continue
             for char in service.characteristics:
                 if (
                     "write" in char.properties
@@ -451,10 +572,12 @@ class IstripLight(LightEntity, RestoreEntity):
             if known_uuid in writable_uuids:
                 return known_uuid
 
-        return writable_uuids[0] if writable_uuids else None
+        return None
 
     async def _disconnect(self) -> None:
         """Disconnect from the BLE device."""
+        self._confirmed_static = False
+        self._foreign_notification()
         if self._client:
             try:
                 if self._client.is_connected:
@@ -472,6 +595,31 @@ class IstripLight(LightEntity, RestoreEntity):
             decrypted = self._pg.decrypt_payload(bytes(data))
             state = self._pg.parse_state(decrypted)
 
+            if self._is_expected_echo(bytes(data)):
+                return
+            if state["command_type"] in (
+                CommandType.RGB,
+                CommandType.RHYTHM,
+                CommandType.LIGHT,
+            ):
+                self._foreign_notification()
+
+            if state["command_type"] == CommandType.LIGHT:
+                # A level-only report contains no colour, mode or power state.
+                self._attr_brightness = state["brightness"]
+                self._controls_changed()
+                return
+
+            if state["command_type"] == CommandType.RHYTHM:
+                # External music is dynamic even if its style is not recognised.
+                # Do not advertise it as steady lighting to status-light clients.
+                self._music_active = True
+                self._confirmed_static = False
+                self._attr_is_on = True
+                self._attr_effect = MUSIC_EFFECT
+                self._controls_changed()
+                return
+
             # The device echoes the join-group handshake back as a
             # notification right after connecting. That echo decodes to
             # R=G=B=0/brightness=0 -- it's not a real state update, so
@@ -480,10 +628,14 @@ class IstripLight(LightEntity, RestoreEntity):
             if state["command_type"] != CommandType.RGB:
                 return
 
+            self._music_active = False
             self._attr_is_on = state["is_on"]
-            self._attr_rgb_color = state["rgb"]
+            self._attr_rgb_color = map_rgb(
+                state["rgb"], self.settings.rgb_order, inverse=True
+            )
             self._attr_brightness = state["brightness"]
             self._attr_effect = state["effect"]
+            self._confirmed_static = state["effect"] is None
             # A notification carries the speed of the effect reported in the
             # same frame, so attribute it to that effect rather than to a
             # single global value. This is how a physical IR remote change
@@ -492,6 +644,7 @@ class IstripLight(LightEntity, RestoreEntity):
                 self._store_speed(state["effect"], state["speed"])
 
             self.schedule_update_ha_state()
+            self._controls_changed()
 
         except Exception:
             _LOGGER.exception("Error handling notification from %s", self._address)
@@ -506,6 +659,11 @@ class IstripLight(LightEntity, RestoreEntity):
         a chance to come back before we surface a failure to Home Assistant.
         """
         last_exc: Exception | None = None
+        if self._restoring:
+            # Never reconnect/retry an automatic return across an uncertain link.
+            retries = 1
+            if not self._connected or not self._client or not self._client.is_connected:
+                raise ConnectionError("Timed return lost its original BLE connection")
 
         for attempt in range(1, retries + 1):
             try:
@@ -514,9 +672,22 @@ class IstripLight(LightEntity, RestoreEntity):
                 if not self._client or not self._client.is_connected:
                     raise ConnectionError("Not connected to device")
 
+                if self._char_uuid not in KNOWN_CHAR_UUIDS:
+                    raise ValueError(
+                        "Only the lighting-control characteristic is allowed"
+                    )
+                if self._restoring and not self._timed_ownership:
+                    raise ConnectionError("Timed return no longer owns the light")
+
+                self._remember_echo(hex_payload)
                 await self._client.write_gatt_char(
                     self._char_uuid, bytes.fromhex(hex_payload), response=False
                 )
+                plaintext = self._pg.decrypt_payload(bytes.fromhex(hex_payload))
+                if plaintext[4] != CommandType.LIGHT:
+                    self._confirmed_static = (
+                        plaintext[4] == CommandType.RGB and plaintext[6] == 0
+                    )
                 return
 
             # Write failures span BleakError, timeouts, and ESPHome-proxy-
@@ -524,6 +695,8 @@ class IstripLight(LightEntity, RestoreEntity):
             except Exception as err:  # noqa: BLE001
                 last_exc = err
                 self._connected = False
+                self._confirmed_static = False
+                self._attr_available = False
                 if attempt < retries:
                     _LOGGER.warning(
                         "Send attempt %d/%d to %s failed (%s), retrying in %.1fs",
