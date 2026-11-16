@@ -48,16 +48,20 @@ All entities share the original light's BLE connection. Services `set_effect`
 (`effect`, optional `speed`) and `set_speed` remain available and now dispatch
 only to integration-owned lights. Existing `entity_id` service calls still work.
 
-## Brightness test path
+## Brightness and qualification
 
 The tested controller did not visibly dim when only the brightness byte embedded
 in RGB/effect packets was changed, despite successful HA state updates.
-This candidate uses the documented standalone LIGHT command0x07:
+The implementation uses the documented standalone LIGHT command0x07:
 `54 52 00 57 07 group brightness 00...`, encrypted in the existing16-byte frame.
 Its level uses the integration's existing0–100 device scale. The separate
 command is documented and implemented in the pinned public protocol/source
-linked below; support and effective range still need physical verification on
-the controller. Begin at low levels; do not infer visible dimming from readback.
+linked below. A physical20% →2% →20% comparison confirmed visible dimming in
+steady-colour mode on the tested controller on16November2026. The same comparison
+with sound response enabled produced no visible brightness change. Static
+brightness is therefore confirmed; sound-mode brightness is not working in the
+observed test. Other controllers and the full level range remain unqualified.
+Begin at low levels; do not infer visible dimming from HA readback.
 
 A brightness-only change on an already-on strip sends only LIGHT, preserving
 static RGB, animation or controller-microphone mode. Combined colour/effect/on
@@ -66,6 +70,21 @@ power and sound permission remain separate. Standalone brightness notifications
 update only brightness; foreign changes revoke timed ownership, while recent
 command echoes are ignored. A level-only frame never establishes a previously
 unknown static state. No new connection or writable characteristic is used.
+
+Remaining physical checks:
+
+- Brightness retention across colour changes, off/on and controller power cycles.
+- Actual state after HA restart, including whether device brightness and HA's
+  restored value agree; a restored value is not a device query.
+- Brightness with ordinary animation effects, separately from sound response.
+- Classic, Dynamic and Disco sound styles, using explicit flashing precautions;
+  only Soft has been confirmed. Sensitivity and stopping have also been confirmed.
+- App/IR overrides and disconnected timed-return recovery without overwriting
+  manual changes. Keep uncertain recovery records; do not force a reconnect.
+
+These are remaining qualification tasks, not permission to run unattended style,
+power-cycle or outage tests. The confirmed implementation has138 passing offline
+tests; those establish protocol/HA behavior, not physical results for these gaps.
 
 ## Timed return
 
