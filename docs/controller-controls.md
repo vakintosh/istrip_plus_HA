@@ -11,7 +11,8 @@ The existing device page gains:
 
 - **Experimental music protocol**: explicit per-device opt-in, initially off.
 - **Controller microphone (experimental)**: starts controller-local sound response;
-  turning it off sends steady retained RGB/brightness. No audio leaves the controller.
+  turning it off returns to retained RGB/brightness without powering on an already
+  off strip. No audio leaves the controller.
 - **Microphone sensitivity (experimental)**: 0–100, persisted across HA restarts.
 - **Music style (experimental)**: Soft (default), Classic, Dynamic, Disco.
   Disco/dynamic lighting can flash. No automatic disco/strobe qualification tests.
@@ -55,6 +56,12 @@ HA cannot query reliable current device state, so automatic recovery after an
 outage would risk overwriting manual changes. Inspect the device and send an
 explicit desired static command, or call `istrip.cancel_timed_return` to discard
 the record without writing. A steady light command exits music mode.
+If storage fails, no automatic return starts until its journal has been saved;
+the snapshot is retained in memory on failed clearing/persistence, with recovery
+marked uncertain. A manual change while the initial snapshot is being saved aborts
+music without writing. Invalid effect/control requests do not cancel a valid timer.
+Restored microphone mode remains marked dynamic after HA restart, but this marker
+is optimistic state, not an automatic command to restart microphone mode.
 
 ## Protocol evidence and limits
 

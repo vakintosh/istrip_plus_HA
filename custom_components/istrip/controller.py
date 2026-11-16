@@ -31,8 +31,8 @@ def serialized(method):
     @wraps(method)
     async def wrapped(self, *args, **kwargs):
         async with self._command_lock:
-            await self._revoke_return()
             try:
+                await self._revoke_return()
                 result = await method(self, *args, **kwargs)
                 await self._cancel_return()
                 return result
@@ -83,8 +83,15 @@ class ControllerMixin:
             self._cancel_timer = None
         self._timed_ownership = False
         if self.journal.record:
+            record = self.journal.record
             self.journal.record = None
-            await self._save_controls()
+            try:
+                await self._save_controls()
+            except BaseException:
+                # A failed clear must not discard the only in-memory snapshot.
+                self.journal.record = record
+                self.journal.uncertain()
+                raise
 
     async def _revoke_return(self):
         """Keep recovery evidence until a new explicit command succeeds."""
@@ -165,19 +172,19 @@ class ControllerMixin:
                     raise ValueError("Expected boolean")
             else:
                 raise ValueError("Unknown control")
-            await self._revoke_return()
             try:
+                await self._revoke_return()
                 if key == "microphone":
                     if value:
                         await self._write_music()
-                    else:
-                        await self._write_static()
+                    elif self._music_active or not self._confirmed_static:
+                        await self._write_static(is_on=self._attr_is_on)
                 else:
                     setattr(self.settings, key, value)
                     # Save before writes so an ambiguous write retains its settings.
                     await self._save_controls()
                     if key == "experimental_music" and not value and self._music_active:
-                        await self._write_static()
+                        await self._write_static(is_on=self._attr_is_on)
                     elif self._music_active:
                         await self._write_music()
                     elif key == "rgb_order" and self._attr_is_on:
@@ -204,9 +211,11 @@ class ControllerMixin:
                 "brightness": self._attr_brightness,
             }
             self.journal.begin(time.time() + duration, snapshot)
-            await self._save_controls()
-            self._timed_ownership = True
             try:
+                await self._save_controls()
+                if not self.journal.active:
+                    raise ConnectionError("Light changed before timed music")
+                self._timed_ownership = True
                 await self._write_music()
                 if not self._timed_ownership:
                     raise ConnectionError("Light changed while starting timed music")
@@ -217,7 +226,7 @@ class ControllerMixin:
             except BaseException:
                 self._timed_ownership = False
                 self.journal.uncertain()
-                await self._save_controls()
+                await self._save_recovery()
                 raise
             finally:
                 self._controls_changed()
@@ -227,27 +236,41 @@ class ControllerMixin:
             self._cancel_timer = None
             if not self.journal.active or not self._timed_ownership:
                 return
-            # Persist before attempting a write. A crash mid-write is ambiguous.
-            snapshot = self.journal.record["snapshot"]
-            self.journal.record["status"] = "restoring"
-            await self._save_controls()
+            record = self.journal.record
+            snapshot = record["snapshot"]
             self._restoring = True
             try:
+                # Persist before attempting a write. A crash mid-write is ambiguous.
+                record["status"] = "restoring"
+                await self._save_controls()
+                if not self._timed_ownership:
+                    raise ConnectionError("Light changed before timed return")
                 await self._write_static(**snapshot)
                 if not self._timed_ownership:
                     raise ConnectionError("Light changed during timed return")
-                self.journal.record = None
-                self._timed_ownership = False
-            except Exception:
+                await self._cancel_return()
+            except BaseException as err:
+                self.journal.record = record
                 self.journal.uncertain()
                 self._timed_ownership = False
+                await self._save_recovery()
+                if not isinstance(err, Exception):
+                    raise
                 _LOGGER.exception(
                     "Timed return needs reconciliation; no automatic retry"
                 )
             finally:
                 self._restoring = False
-                await self._save_controls()
                 self._controls_changed()
+
+    async def _save_recovery(self):
+        """Retain RAM evidence if storage is unavailable; never retry hardware."""
+        try:
+            await self._save_controls()
+        except Exception:
+            _LOGGER.exception(
+                "Cannot persist timed-return recovery; snapshot retained in memory"
+            )
 
     async def async_cancel_timed_return(self):
         """Discard a recovery record without changing hardware."""

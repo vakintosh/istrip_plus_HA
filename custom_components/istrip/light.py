@@ -46,7 +46,7 @@ from .const import (
     SPEED_SEND_INTERVAL,
 )
 from .controller import ControllerMixin, serialized
-from .controls import MUSIC_EFFECT, map_rgb
+from .controls import MUSIC_EFFECT, integer, map_rgb
 from .payload_generator import CommandType, PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
@@ -173,13 +173,17 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
             "timed_return_deadline": record["deadline"] if record else None,
         }
 
-    @serialized
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light with optional color, brightness, or effect."""
+        if ATTR_EFFECT in kwargs and kwargs[ATTR_EFFECT] not in self._pg.EFFECT_MODES:
+            raise ValueError("Unknown effect")
+        await self._async_turn_on_locked(**kwargs)
+
+    @serialized
+    async def _async_turn_on_locked(self, **kwargs: Any) -> None:
+        """Apply a validated light command while owning the command lock."""
         if ATTR_EFFECT in kwargs:
             effect_name = kwargs[ATTR_EFFECT]
-            if effect_name not in self._pg.EFFECT_MODES:
-                raise ValueError("Unknown effect")
             self._music_active = False
             self._adopt_pending_speed(effect_name)
             self._attr_effect = effect_name
@@ -227,11 +231,19 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
         payload = self._pg.send_led_off()
         await self._send_payload(payload)
 
-    @serialized
     async def set_effect(self, effect_name: str, speed: int | None = None) -> None:
         """Set an effect, optionally overriding that effect's speed."""
         if effect_name not in self._pg.EFFECT_MODES:
             raise ValueError("Unknown effect")
+        if speed is not None:
+            integer(speed, 1, 100)
+        await self._async_set_effect_locked(effect_name, speed)
+
+    @serialized
+    async def _async_set_effect_locked(
+        self, effect_name: str, speed: int | None
+    ) -> None:
+        """Apply a validated effect without revoking ownership on rejection."""
         self._music_active = False
         if speed is not None:
             self._store_speed(effect_name, speed)
@@ -324,7 +336,15 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
             if (brightness := last_state.attributes.get(ATTR_BRIGHTNESS)) is not None:
                 self._attr_brightness = brightness
             if (effect := last_state.attributes.get(ATTR_EFFECT)) is not None:
-                self._attr_effect = effect if effect in self._pg.EFFECT_MODES else None
+                if effect == MUSIC_EFFECT:
+                    # Restored state is optimistic, but must not masquerade as
+                    # steady RGB. Merely marking it never restarts device music.
+                    self._attr_effect = MUSIC_EFFECT
+                    self._music_active = True
+                else:
+                    self._attr_effect = (
+                        effect if effect in self._pg.EFFECT_MODES else None
+                    )
 
         # Per-effect speeds cannot be expressed as entity attributes, so they
         # travel as extra stored data. Without this they reset to defaults on
