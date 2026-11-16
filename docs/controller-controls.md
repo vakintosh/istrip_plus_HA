@@ -48,6 +48,25 @@ All entities share the original light's BLE connection. Services `set_effect`
 (`effect`, optional `speed`) and `set_speed` remain available and now dispatch
 only to integration-owned lights. Existing `entity_id` service calls still work.
 
+## Brightness test path
+
+The tested controller did not visibly dim when only the brightness byte embedded
+in RGB/effect packets was changed, despite successful HA state updates.
+This candidate uses the documented standalone LIGHT command0x07:
+`54 52 00 57 07 group brightness 00...`, encrypted in the existing16-byte frame.
+Its level uses the integration's existing0–100 device scale. The separate
+command is documented and implemented in the pinned public protocol/source
+linked below; support and effective range still need physical verification on
+the controller. Begin at low levels; do not infer visible dimming from readback.
+
+A brightness-only change on an already-on strip sends only LIGHT, preserving
+static RGB, animation or controller-microphone mode. Combined colour/effect/on
+requests apply the requested mode first, then the standalone level. Colour,
+power and sound permission remain separate. Standalone brightness notifications
+update only brightness; foreign changes revoke timed ownership, while recent
+command echoes are ignored. A level-only frame never establishes a previously
+unknown static state. No new connection or writable characteristic is used.
+
 ## Timed return
 
 ```yaml

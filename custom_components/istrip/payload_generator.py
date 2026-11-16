@@ -126,6 +126,14 @@ class PayloadGenerator:
         payload[11] = speed
         return self._encrypt_and_format(payload)
 
+    def get_brightness_payload(self, brightness: int) -> str:
+        """Build documented LIGHT0x07 without changing colour or mode."""
+        integer(brightness, 0, 100)
+        payload = bytearray(16)
+        payload[:4] = self.HEADER
+        payload[4:7] = bytes((CommandType.LIGHT, self.GROUP_ID, brightness))
+        return self._encrypt_and_format(payload)
+
     def send_led_off(self, brightness: int = 0, speed: int = 100) -> str:
         """Generate the payload to turn off the LED strip."""
         payload = bytearray(16)
@@ -199,6 +207,12 @@ class PayloadGenerator:
             )
 
         command_type = decrypted_payload[4]
+        if command_type == CommandType.LIGHT:
+            level = integer(decrypted_payload[6], 0, 100)
+            return {
+                "command_type": command_type,
+                "brightness": int(level * 255 / 100),
+            }
         mode = decrypted_payload[6]
         red = decrypted_payload[7]
         green = decrypted_payload[8]

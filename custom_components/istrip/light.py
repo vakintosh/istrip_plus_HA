@@ -175,6 +175,8 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light with optional color, brightness, or effect."""
+        if ATTR_BRIGHTNESS in kwargs:
+            integer(kwargs[ATTR_BRIGHTNESS], 0, 255)
         if ATTR_EFFECT in kwargs and kwargs[ATTR_EFFECT] not in self._pg.EFFECT_MODES:
             raise ValueError("Unknown effect")
         await self._async_turn_on_locked(**kwargs)
@@ -182,6 +184,14 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
     @serialized
     async def _async_turn_on_locked(self, **kwargs: Any) -> None:
         """Apply a validated light command while owning the command lock."""
+        if self._attr_is_on and set(kwargs) == {ATTR_BRIGHTNESS}:
+            brightness = kwargs[ATTR_BRIGHTNESS]
+            await self._send_payload(
+                self._pg.get_brightness_payload(int(brightness * 100 / 255))
+            )
+            self._attr_brightness = brightness
+            return
+
         if ATTR_EFFECT in kwargs:
             effect_name = kwargs[ATTR_EFFECT]
             self._music_active = False
@@ -192,6 +202,12 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
 
             self._attr_is_on = True
             await self._send_payload(self._build_effect_payload(effect_name))
+            if ATTR_BRIGHTNESS in kwargs:
+                await self._send_payload(
+                    self._pg.get_brightness_payload(
+                        int(self._attr_brightness * 100 / 255)
+                    )
+                )
             return
 
         if ATTR_RGB_COLOR in kwargs:
@@ -206,6 +222,12 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
 
         if self._music_active:
             await self._write_music()
+            if ATTR_BRIGHTNESS in kwargs:
+                await self._send_payload(
+                    self._pg.get_brightness_payload(
+                        int(self._attr_brightness * 100 / 255)
+                    )
+                )
             return
 
         # Always convert to the device's 0-100 scale, even when brightness
@@ -221,6 +243,8 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
 
         self._attr_is_on = True
         await self._send_payload(payload)
+        if ATTR_BRIGHTNESS in kwargs:
+            await self._send_payload(self._pg.get_brightness_payload(brightness))
 
     @serialized
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -573,8 +597,18 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
 
             if self._is_expected_echo(bytes(data)):
                 return
-            if state["command_type"] in (CommandType.RGB, CommandType.RHYTHM):
+            if state["command_type"] in (
+                CommandType.RGB,
+                CommandType.RHYTHM,
+                CommandType.LIGHT,
+            ):
                 self._foreign_notification()
+
+            if state["command_type"] == CommandType.LIGHT:
+                # A level-only report contains no colour, mode or power state.
+                self._attr_brightness = state["brightness"]
+                self._controls_changed()
+                return
 
             if state["command_type"] == CommandType.RHYTHM:
                 # External music is dynamic even if its style is not recognised.
@@ -650,9 +684,10 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
                     self._char_uuid, bytes.fromhex(hex_payload), response=False
                 )
                 plaintext = self._pg.decrypt_payload(bytes.fromhex(hex_payload))
-                self._confirmed_static = (
-                    plaintext[4] == CommandType.RGB and plaintext[6] == 0
-                )
+                if plaintext[4] != CommandType.LIGHT:
+                    self._confirmed_static = (
+                        plaintext[4] == CommandType.RGB and plaintext[6] == 0
+                    )
                 return
 
             # Write failures span BleakError, timeouts, and ESPHome-proxy-

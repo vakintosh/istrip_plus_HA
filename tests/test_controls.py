@@ -54,7 +54,8 @@ class TestLight(IstripLight):
 
     async def _send_payload(self, payload, **kwargs):
         self.frames.append(self._pg.decrypt_payload(bytes.fromhex(payload)))
-        self._confirmed_static = self.frames[-1][4:7] == bytes([2, 1, 0])
+        if self.frames[-1][4] != CommandType.LIGHT:
+            self._confirmed_static = self.frames[-1][4:7] == bytes([2, 1, 0])
 
 
 @pytest.fixture
@@ -143,7 +144,11 @@ async def test_direct_rgb_exits_music(light):
     await light.async_set_control("microphone", True)
     await light.async_turn_on(rgb_color=(1, 2, 3), brightness=40)
     assert not light._music_active and light.effect is None
-    assert light.frames[-1][7:10] == bytes([1, 2, 3])
+    assert [frame[4] for frame in light.frames[-2:]] == [
+        CommandType.RGB,
+        CommandType.LIGHT,
+    ]
+    assert light.frames[-2][7:10] == bytes([1, 2, 3])
 
 
 @pytest.mark.asyncio
