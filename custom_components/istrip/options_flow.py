@@ -1,4 +1,4 @@
-"""Configuration permission for the unverified sound-reactive protocol."""
+"""Configuration permission for controller-local sound response."""
 
 import logging
 

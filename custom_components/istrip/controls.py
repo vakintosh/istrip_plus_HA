@@ -11,7 +11,8 @@ from itertools import permutations
 from typing import Any
 
 MUSIC_STYLES = {"Soft": 4, "Classic": 5, "Dynamic": 3, "Disco": 2}
-MUSIC_EFFECT = "Controller microphone (experimental)"
+MUSIC_EFFECT = "Sound reactive"
+LEGACY_MUSIC_EFFECT = "Controller microphone (experimental)"
 RGB_ORDERS = tuple("".join(p) for p in permutations("RGB"))
 
 

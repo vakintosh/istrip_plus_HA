@@ -57,10 +57,10 @@ set_effect:
           step: 1
 
 start_timed_music:
-  name: Start timed controller music (experimental)
+  name: Start timed sound response
   description: >-
     Save the current static state and run controller microphone mode temporarily.
-    Requires experimental music opt-in. Restart or ambiguous control cancels
+    Requires sound-reactive permission in Configure. Restart or ambiguous control cancels
     automatic restoration and retains a reconciliation record.
   target:
     entity:

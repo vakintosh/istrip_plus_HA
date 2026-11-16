@@ -89,7 +89,7 @@ class PayloadGenerator:
         return self._encrypt_and_format(payload)
 
     def get_microphone_payload(self, style: str, sensitivity: int) -> str:
-        """Build experimental controller-mic RHYTHM, never phone audio/FFT.
+        """Build controller-mic RHYTHM, never phone audio/FFT.
 
         See docs/controller-controls.md for evidence and qualification limits.
         """

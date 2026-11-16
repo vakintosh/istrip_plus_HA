@@ -11,7 +11,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     light = entry.runtime_data["light"]
     async_add_entities(
         [
-            IstripSelect(light, "music_style", "Sound style (unverified)"),
+            IstripSelect(light, "music_style", "Sound style"),
             IstripSelect(light, "rgb_order", "RGB channel order"),
         ]
     )

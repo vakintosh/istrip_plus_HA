@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from custom_components.istrip.controls import MUSIC_EFFECT
+from custom_components.istrip.controls import LEGACY_MUSIC_EFFECT, MUSIC_EFFECT
 from custom_components.istrip.light import RestoreEntity
 from custom_components.istrip.const import KNOWN_CHAR_UUIDS
 from custom_components.istrip.light import IstripLight
@@ -130,7 +130,10 @@ async def test_manual_clear_storage_failure_preserves_recovery(light, timer):
 
 
 @pytest.mark.asyncio
-async def test_restored_music_stays_marked_dynamic_without_restart_command(light):
+@pytest.mark.parametrize("restored_effect", [MUSIC_EFFECT, LEGACY_MUSIC_EFFECT])
+async def test_restored_music_stays_marked_dynamic_without_restart_command(
+    light, restored_effect
+):
     light._confirmed_static = False
     light.async_get_last_state = AsyncMock(
         return_value=SimpleNamespace(
@@ -138,7 +141,7 @@ async def test_restored_music_stays_marked_dynamic_without_restart_command(light
             attributes={
                 "rgb_color": [0, 0, 255],
                 "brightness": 51,
-                "effect": MUSIC_EFFECT,
+                "effect": restored_effect,
             },
         )
     )

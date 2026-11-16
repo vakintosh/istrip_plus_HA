@@ -26,9 +26,9 @@
     "step": {
       "init": {
         "title": "Sound-reactive control",
-        "description": "Allow the Sound reactive switch to use the controller's own microphone. Enabling permission does not start sound response. Commands and style mappings are experimental and not yet physically verified on every controller; lighting may flash or ignore brightness. No room audio is recorded or uploaded. Disabling permission returns active sound response to static lighting when the Bluetooth write succeeds.",
+        "description": "Allow the Sound reactive switch to use the controller's own microphone. Enabling permission does not start sound response. Soft mode has been confirmed working on the tested controller; other controllers and Classic, Dynamic and Disco styles still need verification. Lighting may flash or ignore brightness. No room audio is recorded or uploaded. Disabling permission returns active sound response to static lighting when the Bluetooth write succeeds.",
         "data": {
-          "experimental_music": "Allow experimental sound-reactive control"
+          "experimental_music": "Allow sound-reactive control"
         }
       }
     },
@@ -36,7 +36,7 @@
       "not_loaded": "Load the iStrip integration before changing sound-reactive permission."
     },
     "error": {
-      "invalid_permission": "Choose whether to allow experimental sound-reactive control.",
+      "invalid_permission": "Choose whether to allow sound-reactive control.",
       "cannot_update": "Could not save permission or stop sound response. Check the Bluetooth connection and HA logs; the setting may not have been saved."
     }
   },

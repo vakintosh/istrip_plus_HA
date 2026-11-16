@@ -146,7 +146,7 @@ class ControllerMixin:
         if not self.settings.experimental_music:
             raise ServiceValidationError(
                 "Sound reactive needs permission first. Open Settings > Devices & "
-                "services > iStrip > Configure and enable Allow experimental "
+                "services > iStrip > Configure and enable Allow "
                 "sound-reactive control. This enables permission, not music."
             )
 

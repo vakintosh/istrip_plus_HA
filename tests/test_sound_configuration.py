@@ -1,5 +1,7 @@
 """Permission is configuration, not a second sound-response switch."""
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -10,6 +12,20 @@ from custom_components.istrip.config_flow import IstripConfigFlow
 from custom_components.istrip.options_flow import IstripOptionsFlow
 from custom_components.istrip.switch import IstripSwitch, async_setup_entry
 from test_controls import TestLight as FakeLight
+
+
+@pytest.mark.parametrize("filename", ["strings.json", "translations/en.json"])
+def test_confirmed_sound_control_has_normal_labels_with_specific_limits(filename):
+    root = Path(__file__).resolve().parents[1] / "custom_components/istrip"
+    strings = json.loads((root / filename).read_text())
+    form = strings["options"]["step"]["init"]
+    assert form["data"]["experimental_music"] == "Allow sound-reactive control"
+    assert "Soft mode has been confirmed working" in form["description"]
+    assert (
+        "Classic, Dynamic and Disco styles still need verification"
+        in form["description"]
+    )
+    assert "experimental" not in form["description"].lower()
 
 
 def flow_for(light):

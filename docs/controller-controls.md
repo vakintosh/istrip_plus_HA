@@ -13,7 +13,8 @@ The existing device page gains:
   turning it off returns to retained RGB/brightness without powering on an already
   off strip. No audio leaves the controller.
 - **Sound sensitivity**: 0–100, persisted across HA restarts.
-- **Sound style (unverified)**: Soft (default), Classic, Dynamic, Disco.
+- **Sound style**: Soft (default), Classic, Dynamic, Disco. Soft is confirmed on
+  the tested controller; Classic, Dynamic and Disco still need verification.
   Disco/dynamic lighting can flash. No automatic disco/strobe qualification tests.
 - **Effect speed**: 1–100, preserving upstream per-effect speed storage/debouncing.
   This controls RGB animation effects, not microphone modes.
@@ -26,7 +27,7 @@ The existing device page gains:
 ### Enable sound-reactive control once
 
 Open **Settings → Devices & services → iStrip → Configure** and enable
-**Allow experimental sound-reactive control** after reading the warning.
+**Allow sound-reactive control** after reading the warning.
 This grants permission; it does not start sound response or capture audio.
 Then use **Sound reactive** on the device page. With permission off that switch
 is unavailable, and direct service activation returns an explanatory validation
@@ -96,10 +97,14 @@ with FFT zero; no phone microphone capture or audio streaming is implemented.
   That app uses a different header (`...61`); these mappings are **not proof of
   exact iStrip+ or controller compatibility**. No decompiled app code is included.
 
-Until hardware-qualified, all music controls remain experimental and opt-in.
-Unit tests prove frame construction and HA behavior, not visible device response.
-Begin hardware qualification with low-brightness Soft, then static return;
-do not assume speed/brightness influence each controller music style.
+Controller-local sound response in Soft mode was confirmed working through HA
+on the tested controller on16November2026. The normal controls no longer carry
+an experimental label. This does not qualify other controllers, every sensitivity
+value or the Classic/Dynamic/Disco mappings. Permission remains an explicit
+configuration setting. Unit tests prove frame construction and HA behavior,
+not visible device response; do not assume speed/brightness influence each style.
+Existing stored setting keys, entity IDs and the legacy restored effect label
+remain compatible; new states display the effect as Sound reactive.
 
 ### Qualification record and research
 
@@ -111,16 +116,17 @@ controller IDs apply to iStrip+. We do not copy its app implementation.
 
 The development HA checks accepted opt-in gating, timed music entry, timed
 return to static, and cancellation by an explicit HA static command. These are
-HA/BLE write-path checks, not physical sound-response qualification. Quiet vs
-nearby sound, sensitivity response, each style, IR overrides, and actual
-light output after a disconnected recovery remain unverified. No automatic
+HA/BLE write-path checks. Subsequent human observation confirmed sound response
+with Soft selected. Calibrated quiet/nearby-sound comparisons, sensitivity response,
+the other styles, IR overrides, and actual light output after a disconnected
+recovery remain unverified. No automatic
 Classic/Dynamic/Disco tests or microphone recordings are part of qualification.
 
 The interface follows HA's [options-flow pattern](https://developers.home-assistant.io/docs/core/integration/options_flow/)
 and [service-action exception guidance](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/action-exceptions/):
 one operating switch, a separate configuration permission, and
 `ServiceValidationError` for attempts without permission. This does not qualify
-the proprietary controller protocol or remove its experimental warning.
+the proprietary controller protocol on all hardware or qualify untested styles.
 
 ## Installation and dependencies
 

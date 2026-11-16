@@ -46,7 +46,7 @@ from .const import (
     SPEED_SEND_INTERVAL,
 )
 from .controller import ControllerMixin, serialized
-from .controls import MUSIC_EFFECT, integer, map_rgb
+from .controls import LEGACY_MUSIC_EFFECT, MUSIC_EFFECT, integer, map_rgb
 from .payload_generator import CommandType, PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
@@ -336,7 +336,7 @@ class IstripLight(ControllerMixin, LightEntity, RestoreEntity):
             if (brightness := last_state.attributes.get(ATTR_BRIGHTNESS)) is not None:
                 self._attr_brightness = brightness
             if (effect := last_state.attributes.get(ATTR_EFFECT)) is not None:
-                if effect == MUSIC_EFFECT:
+                if effect in (MUSIC_EFFECT, LEGACY_MUSIC_EFFECT):
                     # Restored state is optimistic, but must not masquerade as
                     # steady RGB. Merely marking it never restarts device music.
                     self._attr_effect = MUSIC_EFFECT

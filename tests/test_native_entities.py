@@ -47,6 +47,7 @@ async def test_native_setup_changes_and_unsubscription(tmp_path):
     assert by_key["speed"].native_value == 100
     assert not by_key["microphone"].is_on
     assert by_key["microphone"].name == "Sound reactive"
+    assert by_key["music_style"].name == "Sound style"
     assert by_key["microphone"].unique_id == f"{light.unique_id}_microphone"
     await by_key["sensitivity"].async_set_native_value(42.0)
     await hass.async_block_till_done()
