@@ -7,6 +7,7 @@ import logging
 import time
 from functools import wraps
 
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
@@ -141,9 +142,16 @@ class ControllerMixin:
         self._attr_rgb_color = rgb
         self._attr_brightness = brightness
 
-    async def _write_music(self):
+    def _require_music_permission(self):
         if not self.settings.experimental_music:
-            raise ValueError("Enable Experimental music protocol before using music")
+            raise ServiceValidationError(
+                "Sound reactive needs permission first. Open Settings > Devices & "
+                "services > iStrip > Configure and enable Allow experimental "
+                "sound-reactive control. This enables permission, not music."
+            )
+
+    async def _write_music(self):
+        self._require_music_permission()
         # Send retained static brightness first: some controllers need an on frame.
         await self._write_static()
         await self._send_payload(
@@ -172,6 +180,9 @@ class ControllerMixin:
                     raise ValueError("Expected boolean")
             else:
                 raise ValueError("Unknown control")
+            if key == "microphone" and value:
+                # Invalid activation must not revoke an existing recovery owner.
+                self._require_music_permission()
             try:
                 await self._revoke_return()
                 if key == "microphone":
@@ -180,9 +191,16 @@ class ControllerMixin:
                     elif self._music_active or not self._confirmed_static:
                         await self._write_static(is_on=self._attr_is_on)
                 else:
+                    previous = getattr(self.settings, key)
                     setattr(self.settings, key, value)
                     # Save before writes so an ambiguous write retains its settings.
-                    await self._save_controls()
+                    try:
+                        await self._save_controls()
+                    except BaseException:
+                        # A failed save must not silently apply a setting in RAM.
+                        # Restore the last accepted value so a retry can persist it.
+                        setattr(self.settings, key, previous)
+                        raise
                     if key == "experimental_music" and not value and self._music_active:
                         await self._write_static(is_on=self._attr_is_on)
                     elif self._music_active:
@@ -197,8 +215,7 @@ class ControllerMixin:
         """Enter music temporarily; only static initial states are restorable."""
         integer(duration, 1, 86400)
         async with self._command_lock:
-            if not self.settings.experimental_music:
-                raise ValueError("Enable Experimental music protocol first")
+            self._require_music_permission()
             if self._attr_effect or self._music_active:
                 raise ValueError("Start timed music from static lighting or off")
             if not self._confirmed_static:

@@ -9,12 +9,11 @@ Briar status-light skill is a separate package and does not enable music.
 
 The existing device page gains:
 
-- **Experimental music protocol**: explicit per-device opt-in, initially off.
-- **Controller microphone (experimental)**: starts controller-local sound response;
+- **Sound reactive**: the single operating switch for controller-local sound response;
   turning it off returns to retained RGB/brightness without powering on an already
   off strip. No audio leaves the controller.
-- **Microphone sensitivity (experimental)**: 0–100, persisted across HA restarts.
-- **Music style (experimental)**: Soft (default), Classic, Dynamic, Disco.
+- **Sound sensitivity**: 0–100, persisted across HA restarts.
+- **Sound style (unverified)**: Soft (default), Classic, Dynamic, Disco.
   Disco/dynamic lighting can flash. No automatic disco/strobe qualification tests.
 - **Effect speed**: 1–100, preserving upstream per-effect speed storage/debouncing.
   This controls RGB animation effects, not microphone modes.
@@ -23,6 +22,26 @@ The existing device page gains:
   for steady RGB and effect RGB parameters, with inverse notification mapping.
   This does not reprogram strip wiring, device effect palettes or opcode 5.
   Change it only while in static mode or off.
+
+### Enable sound-reactive control once
+
+Open **Settings → Devices & services → iStrip → Configure** and enable
+**Allow experimental sound-reactive control** after reading the warning.
+This grants permission; it does not start sound response or capture audio.
+Then use **Sound reactive** on the device page. With permission off that switch
+is unavailable, and direct service activation returns an explanatory validation
+error rather than an unexpected exception. Turning off an already active mode
+remains possible. Disabling permission attempts to stop active sound response;
+a Bluetooth/storage failure is reported rather than claimed as success.
+
+Upgrades retain the saved opt-in, light identity, sound-switch unique ID and
+other existing control IDs. Existing entity IDs and user-assigned names are
+preserved by HA, so older installations can retain their original entity ID or
+custom name. Only the old **Experimental music protocol** permission switch is
+removed from the entity registry. Automations targeting that obsolete switch
+must be updated: permission is now configuration, not an operating mode.
+The existing per-device settings Store remains the source of truth; opening or
+saving unchanged configuration does not cancel an active timed return.
 
 All entities share the original light's BLE connection. Services `set_effect`
 (`effect`, optional `speed`) and `set_speed` remain available and now dispatch
@@ -81,6 +100,27 @@ Until hardware-qualified, all music controls remain experimental and opt-in.
 Unit tests prove frame construction and HA behavior, not visible device response.
 Begin hardware qualification with low-brightness Soft, then static return;
 do not assume speed/brightness influence each controller music style.
+
+### Qualification record and research
+
+Public protocol evidence distinguishes a RHYTHM frame from static RGB. The
+related app separately calls `openMIC(mode, sensitivity)` for its controller
+microphone and `setRhythm(mode, level)` when processing phone audio in
+`RhythmActivity.java`; this is evidence of separate paths, not proof that its
+controller IDs apply to iStrip+. We do not copy its app implementation.
+
+The development HA checks accepted opt-in gating, timed music entry, timed
+return to static, and cancellation by an explicit HA static command. These are
+HA/BLE write-path checks, not physical sound-response qualification. Quiet vs
+nearby sound, sensitivity response, each style, IR overrides, and actual
+light output after a disconnected recovery remain unverified. No automatic
+Classic/Dynamic/Disco tests or microphone recordings are part of qualification.
+
+The interface follows HA's [options-flow pattern](https://developers.home-assistant.io/docs/core/integration/options_flow/)
+and [service-action exception guidance](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/action-exceptions/):
+one operating switch, a separate configuration permission, and
+`ServiceValidationError` for attempts without permission. This does not qualify
+the proprietary controller protocol or remove its experimental warning.
 
 ## Installation and dependencies
 

@@ -1,7 +1,7 @@
 """Native control creation, identity and dispatcher lifecycle in real HA."""
 
 from types import MethodType, SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -18,22 +18,24 @@ async def test_native_setup_changes_and_unsubscription(tmp_path):
     light.hass = hass
     light.async_write_ha_state = Mock()
     light._controls_changed = MethodType(ControllerMixin._controls_changed, light)
-    entry = SimpleNamespace(runtime_data={"light": light})
+    entry = SimpleNamespace(runtime_data={"light": light}, entry_id="test_entry")
     entities = []
-    for module in (number, select, switch):
-        await module.async_setup_entry(hass, entry, entities.extend)
+    with patch("custom_components.istrip.switch.er.async_get") as registry:
+        registry.return_value.async_get_entity_id.return_value = None
+        for module in (number, select, switch):
+            await module.async_setup_entry(hass, entry, entities.extend)
     assert {entity.key for entity in entities} == {
         "speed",
         "sensitivity",
         "music_style",
         "rgb_order",
         "microphone",
-        "experimental_music",
     }
-    assert len({entity.unique_id for entity in entities}) == 6
+    assert len({entity.unique_id for entity in entities}) == 5
     for entity in entities:
         assert entity.device_info == light.device_info
-        assert entity.available and not entity.should_poll
+        assert entity.available == (entity.key != "microphone")
+        assert not entity.should_poll
         entity.hass = hass
         entity.async_write_ha_state = Mock()
         entity.async_on_remove = Mock()
@@ -44,6 +46,8 @@ async def test_native_setup_changes_and_unsubscription(tmp_path):
     assert by_key["sensitivity"].native_min_value == 0
     assert by_key["speed"].native_value == 100
     assert not by_key["microphone"].is_on
+    assert by_key["microphone"].name == "Sound reactive"
+    assert by_key["microphone"].unique_id == f"{light.unique_id}_microphone"
     await by_key["sensitivity"].async_set_native_value(42.0)
     await hass.async_block_till_done()
     assert by_key["sensitivity"].native_value == 42

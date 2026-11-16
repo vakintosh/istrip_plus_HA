@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from homeassistant.exceptions import ServiceValidationError
 
 from custom_components.istrip.const import CONTROL_SERVICE_UUID, KNOWN_CHAR_UUIDS
 from custom_components.istrip.ble_helpers import find_notify_char
@@ -122,7 +123,7 @@ def test_restart_never_recovers_ownership(status):
 
 @pytest.mark.asyncio
 async def test_music_opt_in_and_static_return(light):
-    with pytest.raises(ValueError):
+    with pytest.raises(ServiceValidationError, match="Configure"):
         await light.async_set_control("microphone", True)
     assert not light.frames
     await light.async_set_control("experimental_music", True)

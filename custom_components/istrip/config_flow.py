@@ -13,11 +13,13 @@ from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
     async_discovered_service_info,
 )
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS, CONF_NAME
+from homeassistant.core import callback
 
 from .ble_helpers import find_notify_char
 from .const import CONTROL_SERVICE_UUID, DOMAIN, KNOWN_CHAR_UUIDS
+from .options_flow import IstripOptionsFlow
 from .payload_generator import PayloadGenerator
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,6 +34,12 @@ class IstripConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for iStrip+ BLE."""
 
     VERSION = 3
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> IstripOptionsFlow:
+        """Keep protocol permission in configuration, not a second mode switch."""
+        return IstripOptionsFlow()
 
     def __init__(self) -> None:
         """Initialize the config flow."""

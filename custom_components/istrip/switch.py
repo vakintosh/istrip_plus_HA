@@ -1,17 +1,25 @@
-"""Explicit experimental opt-in and controller-local microphone switch."""
+"""One operating switch for controller-local sound response."""
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers import entity_registry as er
 
+from .const import DOMAIN
 from .control_entity import ControlEntity
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     light = entry.runtime_data["light"]
+    # Permission now lives in Configure, backed by the same persisted setting.
+    # Remove only our obsolete permission entity, never the light or another entry.
+    registry = er.async_get(hass)
+    legacy = registry.async_get_entity_id(
+        "switch", DOMAIN, f"{light.unique_id}_experimental_music"
+    )
+    if legacy and registry.async_get(legacy).config_entry_id == entry.entry_id:
+        registry.async_remove(legacy)
     async_add_entities(
         [
-            IstripSwitch(light, "microphone", "Controller microphone (experimental)"),
-            IstripSwitch(light, "experimental_music", "Experimental music protocol"),
+            IstripSwitch(light, "microphone", "Sound reactive"),
         ]
     )
 
@@ -21,8 +29,12 @@ class IstripSwitch(ControlEntity, SwitchEntity):
 
     def __init__(self, light, key, name):
         super().__init__(light, key, name)
-        if key == "experimental_music":
-            self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_icon = "mdi:microphone"
+
+    @property
+    def available(self):
+        """Do not offer activation before opt-in; always allow an active mode off."""
+        return self.light.settings.experimental_music or self.light._music_active
 
     @property
     def is_on(self):

@@ -10,7 +10,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities(
         [
             IstripNumber(light, "speed", "Effect speed"),
-            IstripNumber(light, "sensitivity", "Microphone sensitivity (experimental)"),
+            IstripNumber(light, "sensitivity", "Sound sensitivity"),
         ]
     )
 
