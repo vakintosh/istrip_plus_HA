@@ -1,9 +1,8 @@
 # Controller controls (development)
 
-This MIT fork of [vakintosh/istrip_plus_HA](https://github.com/vakintosh/istrip_plus_HA)
-keeps the `istrip` domain, existing light unique IDs and device identifiers.
-Replace the existing integration; do not install a second copy. The portable
-Briar status-light skill is a separate package and does not enable music.
+These controls keep the `istrip` domain, existing light unique IDs and device
+identifiers, under the existing MIT licence. Update the existing integration;
+do not install a second copy. All controls share the light's BLE connection.
 
 ## Controls
 
