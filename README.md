@@ -1,5 +1,13 @@
 # iStrip BLE Light Integration for Home Assistant
 
+This is the Dynamic Devices development fork of
+[vakintosh/istrip_plus_HA](https://github.com/vakintosh/istrip_plus_HA), retaining
+the upstream MIT licence and `istrip` identities. See
+[controller controls and setup](docs/controller-controls.md) for the experimental
+controller microphone, sensitivity/styles, native sliders, timed return and RGB
+order controls. These additions are not yet hardware-qualified or released.
+The upstream tested-version table below is historical, not fork test evidence.
+
 This custom integration replicates core features of the official iStrip+ app, enabling control of iStrip BLE (Bluetooth Low Energy) LED lights directly from Home Assistant. It communicates over BLE using AES-encrypted commands to provide smooth RGB color and brightness adjustments, just like the original app.
 
 ---

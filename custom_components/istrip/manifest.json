@@ -3,15 +3,14 @@
   "name": "iStrip+ BLE Light",
   "bluetooth": [],
   "codeowners": [
-    "@vakintosh"
+    "@ajlennon"
   ],
   "config_flow": true,
   "dependencies": [
     "bluetooth_adapters"
   ],
-  "documentation": "https://github.com/vakintosh/istrip_plus_HA",
+  "documentation": "https://github.com/DynamicDevices/istrip_plus_HA",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/vakintosh/istrip_plus_HA/issues",
   "requirements": [
     "bleak>=0.21.0",
     "bleak-retry-connector>=3.5.0",

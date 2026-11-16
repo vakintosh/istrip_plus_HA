@@ -6,6 +6,8 @@ from enum import IntEnum
 
 from Crypto.Cipher import AES
 
+from .controls import MUSIC_STYLES, integer
+
 
 class CommandType(IntEnum):
     """Command types used in the LED strip communication."""
@@ -84,6 +86,21 @@ class PayloadGenerator:
         payload[0:4] = self.HEADER
         payload[4] = CommandType.JOIN_GROUP_REQUEST
         payload[5] = self.GROUP_ID
+        return self._encrypt_and_format(payload)
+
+    def get_microphone_payload(self, style: str, sensitivity: int) -> str:
+        """Build experimental controller-mic RHYTHM, never phone audio/FFT.
+
+        See docs/controller-controls.md for evidence and qualification limits.
+        """
+        if style not in MUSIC_STYLES:
+            raise ValueError("Unknown music style")
+        integer(sensitivity, 0, 100)
+        payload = bytearray(16)
+        payload[:4] = self.HEADER
+        payload[4:9] = bytes(
+            (CommandType.RHYTHM, self.GROUP_ID, MUSIC_STYLES[style], 0, sensitivity)
+        )
         return self._encrypt_and_format(payload)
 
     def get_rgb_payload(
